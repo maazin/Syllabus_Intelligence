@@ -70,8 +70,34 @@ jobs:
       JWT_SECRET: ci-secret-long-enough-for-hmac-sha256-minimum
       INSTITUTION_EMAIL_DOMAIN: test.edu
       ENVIRONMENT: local
+      # Upload goes through the real S3 client against real object storage
+      # rather than a mock, because the thing worth testing is that boto3 code
+      # written for R2 works unchanged against an S3 implementation.
+      R2_ENDPOINT: http://localhost:9100
+      R2_ACCESS_KEY_ID: minioadmin
+      R2_SECRET_ACCESS_KEY: minioadmin
+      R2_BUCKET: syllabi
     steps:
       - uses: actions/checkout@v4
+
+      # Started as a step rather than a service container: minio/minio needs
+      # `server /data` as its command, and a service container can set an image
+      # and options but not a command.
+      - name: Start object storage
+        run: |
+          docker run -d --name minio -p 9100:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:9100/minio/health/live >/dev/null; then break; fi
+            sleep 2
+          done
+          # The bucket has to exist; storage.py does not create it, which is the
+          # right call for production and means CI has to do what minio-init
+          # does in docker compose.
+          docker run --rm --network host --entrypoint sh minio/mc -c \
+            "mc alias set local http://localhost:9100 minioadmin minioadmin && \
+             mc mb --ignore-existing local/syllabi"
       - uses: astral-sh/setup-uv@v5
       # A managed interpreter, not the runner's system Python. `uv pip install
       # --system` against /usr fails outright on a PEP 668 externally-managed
