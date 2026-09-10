@@ -1,0 +1,153 @@
+{
+  "_comment": [
+    "Recorded extraction for tests/fixtures/syllabi/cs_lecture_native_pdf.pdf.",
+    "Hand-written to match what Pass A + Pass B should produce, so the pipeline",
+    "downstream of the model call is verifiable with no API key. Every source_span",
+    "is verbatim-findable in that fixture's extracted text — the hallucination check",
+    "in validate.py asserts this, so an edit that breaks a quote will fail the tests.",
+    "This is NOT golden-set data (section 16 requires 100 hand-labeled real syllabi)."
+  ],
+  "course": {
+    "subject_code": "COP",
+    "catalog_number": "4530",
+    "section_code": "003",
+    "title": "Data Structures, Algorithms and Generic Programming",
+    "credits": 3,
+    "instructor": {
+      "name": "Dr. Alice Nakamura",
+      "email": "a.nakamura@example.edu",
+      "office_hours_raw": "Wednesdays 1:00-3:00pm"
+    },
+    "term_hint": "Fall 2026",
+    "modality": "in_person",
+    "meeting_pattern_raw": "MWF 10:00-10:50"
+  },
+  "grade_breakdown": [
+    { "category": "Exams", "weight_pct": 40, "item_count": 2, "drop_lowest": 0 },
+    { "category": "Problem Sets", "weight_pct": 20, "item_count": 10, "drop_lowest": 2 },
+    { "category": "Programming Projects", "weight_pct": 25, "item_count": 3, "drop_lowest": 0 },
+    { "category": "Final Exam", "weight_pct": 15, "item_count": 1, "drop_lowest": 0 }
+  ],
+  "assessments": [
+    {
+      "title": "Problem Set 1",
+      "type": "problem_set",
+      "category_ref": "Problem Sets",
+      "weight_pct": 2,
+      "date_expression_raw": "Sep 4",
+      "is_group": false,
+      "page_ref": 1,
+      "source_span": "| Sep 4 | Asymptotic analysis | Problem Set 1 |",
+      "confidence": 0.93
+    },
+    {
+      "title": "Problem Set 2",
+      "type": "problem_set",
+      "category_ref": "Problem Sets",
+      "weight_pct": 2,
+      "date_expression_raw": "Sep 18",
+      "is_group": false,
+      "page_ref": 1,
+      "source_span": "| Sep 18 | Linked lists | Problem Set 2 |",
+      "confidence": 0.93
+    },
+    {
+      "title": "Project 1",
+      "type": "project_milestone",
+      "category_ref": "Programming Projects",
+      "weight_pct": 8.33,
+      "date_expression_raw": "Oct 2",
+      "is_group": false,
+      "page_ref": 1,
+      "source_span": "| Oct 2 | Trees and traversal | Project 1 |",
+      "confidence": 0.9
+    },
+    {
+      "title": "Midterm Exam 1",
+      "type": "midterm",
+      "category_ref": "Exams",
+      "weight_pct": 20,
+      "date_expression_raw": "Tuesday, October 14",
+      "is_group": false,
+      "page_ref": 1,
+      "source_span": "| Tuesday, October 14 | Midterm Exam 1 | Midterm Exam 1 |",
+      "confidence": 0.95
+    },
+    {
+      "title": "Problem Set 5",
+      "type": "problem_set",
+      "category_ref": "Problem Sets",
+      "weight_pct": 2,
+      "date_expression_raw": "Oct 30",
+      "is_group": false,
+      "page_ref": 1,
+      "source_span": "| Oct 30 | Hash tables | Problem Set 5 |",
+      "confidence": 0.92
+    },
+    {
+      "title": "Project 2",
+      "type": "project_milestone",
+      "category_ref": "Programming Projects",
+      "weight_pct": 8.33,
+      "date_expression_raw": "Nov 13",
+      "is_group": true,
+      "page_ref": 1,
+      "source_span": "Group work: Programming Projects 2 and 3 are completed in pairs.",
+      "confidence": 0.88
+    },
+    {
+      "title": "Midterm Exam 2",
+      "type": "midterm",
+      "category_ref": "Exams",
+      "weight_pct": 20,
+      "date_expression_raw": "Nov 20",
+      "is_group": false,
+      "page_ref": 1,
+      "source_span": "| Nov 20 | Midterm Exam 2 | Midterm Exam 2 |",
+      "confidence": 0.95
+    },
+    {
+      "title": "Project 3",
+      "type": "project_milestone",
+      "category_ref": "Programming Projects",
+      "weight_pct": 8.34,
+      "date_expression_raw": "Dec 4",
+      "is_group": true,
+      "page_ref": 1,
+      "source_span": "| Dec 4 | Review | Project 3 |",
+      "confidence": 0.87
+    },
+    {
+      "title": "Final Exam",
+      "type": "final_exam",
+      "category_ref": "Final Exam",
+      "weight_pct": 15,
+      "date_expression_raw": "See the university final exam schedule for the date and time.",
+      "is_group": false,
+      "page_ref": 1,
+      "source_span": "Final exam: cumulative. See the university final exam schedule for the date and time.",
+      "confidence": 0.91
+    }
+  ],
+  "policies": {
+    "attendance_graded": false,
+    "attendance_weight_pct": 0,
+    "attendance_policy_raw": "Attendance is not graded, but you are responsible for all material presented in class.",
+    "late_policy_class": "per_day_penalty",
+    "late_policy_raw": "Late work: assignments lose 10% per day late, up to a maximum of three days. After three days, no credit is given.",
+    "group_work_present": true,
+    "group_work_weight_pct": 16.67,
+    "final_exam_type": "cumulative",
+    "curve_mentioned": false,
+    "participation_weight_pct": 0,
+    "ai_policy_class": "permitted_with_disclosure",
+    "required_materials": [
+      {
+        "title": "Weiss, Data Structures and Algorithm Analysis in C++, 4th ed.",
+        "isbn": "978-0132847377",
+        "required": true,
+        "est_cost_usd": 120
+      }
+    ]
+  }
+}

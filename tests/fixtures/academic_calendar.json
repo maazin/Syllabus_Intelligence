@@ -1,0 +1,19 @@
+{
+  "institution": "Example State University",
+  "term_name": "Fall 2026",
+  "timezone": "America/New_York",
+  "default_due_time": "23:59",
+  "start_date": "2026-08-24",
+  "end_date": "2026-12-04",
+  "add_drop_date": "2026-08-28",
+  "withdrawal_date": "2026-10-30",
+  "finals_start": "2026-12-07",
+  "finals_end": "2026-12-11",
+  "exceptions": [
+    {"date": "2026-09-07", "label": "Labor Day", "no_class": true},
+    {"date": "2026-11-25", "label": "Thanksgiving Break", "no_class": true},
+    {"date": "2026-11-26", "label": "Thanksgiving Break", "no_class": true},
+    {"date": "2026-11-27", "label": "Thanksgiving Break", "no_class": true},
+    {"date": "2026-12-05", "label": "Reading Day", "no_class": true}
+  ]
+}

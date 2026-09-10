@@ -1,0 +1,29 @@
+COP 4530 - Data Structures, Algorithms and Generic Programming
+
+Section 003 | Fall 2026 | 3 credits
+Instructor: Dr. Alice Nakamura (a.nakamura@example.edu)
+Meeting pattern: MWF 10:00-10:50, Love Building 301
+Office hours: Wednesdays 1:00-3:00pm
+
+Grading:
+  Exams: 40%
+  Problem Sets: 20%
+  Programming Projects: 25%
+  Final Exam: 15%
+
+Schedule:
+  Sep 4 - Asymptotic analysis - due: Problem Set 1
+  Sep 18 - Linked lists - due: Problem Set 2
+  Oct 2 - Trees and traversal - due: Project 1
+  Tuesday, October 14 - Midterm Exam 1 - due: Midterm Exam 1
+  Oct 30 - Hash tables - due: Problem Set 5
+  Nov 13 - Graph algorithms - due: Project 2
+  Nov 20 - Midterm Exam 2 - due: Midterm Exam 2
+  Dec 4 - Review - due: Project 3
+
+Attendance is not graded, but you are responsible for all material presented in class.
+Late work: assignments lose 10% per day late, up to a maximum of three days. After three days, no credit is given.
+Group work: Programming Projects 2 and 3 are completed in pairs.
+Final exam: cumulative. See the university final exam schedule for the date and time.
+AI policy: Use of generative AI tools is permitted provided you disclose such use in a comment at the top of each submitted file.
+Required text: Weiss, Data Structures and Algorithm Analysis in C++, 4th ed. ISBN 978-0132847377. Approximately $120.
