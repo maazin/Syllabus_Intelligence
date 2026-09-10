@@ -1,5 +1,7 @@
 # Syllabus Intelligence
 
+[![CI](https://github.com/maazin/Syllabus_Intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/maazin/Syllabus_Intelligence/actions/workflows/ci.yml)
+
 Students upload their syllabi in week 1. The system extracts every graded item,
 resolves relative dates against the institution's academic calendar, merges
 everything into one timeline, and renders a workload heatmap that flags
@@ -364,25 +366,46 @@ hand-labeled *real* syllabi before that number means anything — the fixtures i
 2. **Collect the golden set.** The eval gate is scaffolding until it exists.
 3. **Replace the seeded calendar with real registrar data.** The Fall 2026
    fixture is invented. §9.1 is right that this is a hard dependency.
-4. **Build the review screen.** It is the highest-effort UI surface and the one
-   with a hard target: p50 under 90 seconds for five courses. If review takes
-   five minutes, activation dies. The API side is ready: `/documents/{id}/extraction`
-   ordering, `PATCH /assessments/{id}`, and `/documents/{id}/review-complete`
-   all exist and are tested.
-5. **Run one real extraction.** The two-pass call is wired and cascades
+4. **Run one real extraction.** The two-pass call is wired and cascades
    sonnet → opus per §25.3, but has never executed against the live API — no
    key was available while building. Everything downstream of it is verified.
-6. **Add a smoke test against the real stack.** The browser suite stubs the
+5. **Add a smoke test against the real stack.** The browser suite stubs the
    API deliberately, which means a contract drift between client and server
    would pass both suites. One end-to-end run against a live API and worker
    would close that gap.
-7. **Exercise Google Calendar against real Google.** The OAuth flow, event
+6. **Exercise Google Calendar against real Google.** The OAuth flow, event
    diffing, and deletion handling are built and tested against a fake client,
    but no `GOOGLE_CALENDAR_CLIENT_ID` existed here. Also replace the placeholder
    `encrypt_token` in `google_calendar.py` with real KMS-backed encryption
    before storing a production refresh token.
-8. **Start Google Calendar OAuth verification early** — §19 notes it takes weeks.
-9. **Talk to the provost's office** before launch, not after (§15.3).
+7. **Start Google Calendar OAuth verification early** — §19 notes it takes weeks.
+8. **Talk to the provost's office** before launch, not after (§15.3).
+
+---
+
+## Deploying
+
+[DEPLOY.md](DEPLOY.md) is the runbook. The short version:
+
+```bash
+cd infra/terraform
+cp terraform.tfvars.example terraform.tfvars   # fill in
+cp backend.hcl.example backend.hcl             # fill in
+terraform init -backend-config=backend.hcl && terraform apply
+```
+
+Then set the repository secrets and variables `terraform output` prints, and
+push to `main`. The deploy runs CI, builds four images tagged by commit, runs
+migrations as their own job, rolls a Cloud Run revision, restarts the worker
+VM, and publishes the app to Cloudflare Pages, in that order, so a failure at
+any step leaves the previous version serving.
+
+Until Terraform has run, the Deploy workflow detects that nothing is
+provisioned and skips rather than failing, because a Deploy that is red for a
+reason nobody can act on stops being a signal.
+
+Authentication to GCP is Workload Identity Federation scoped to this one
+repository. There is no service-account key anywhere in the pipeline.
 
 ---
 
@@ -394,9 +417,14 @@ or a prompt, it touches `packages/core` and reaches `api`, `worker`, and
 
 ```
 packages/core/       schemas, db models, date_resolver, workload_model, prompts
-services/api/        FastAPI — HTTP surface only, no parsing logic
-services/worker/     Celery tasks — ingest, extract, resolve, validate
+services/api/        FastAPI, HTTP surface only, no parsing logic
+services/worker/     Celery tasks: ingest, extract, resolve, validate
+services/pipeline/   dbt models and the Airflow DAG that builds the corpus
+apps/web/            Angular front end and the Playwright suite
 scripts/             seed, fixture generation, pipeline runner
 tests/               fixtures, golden set, end-to-end tests
-infra/docker/        local dev stack
+infra/docker/        local dev stack and the images the VM runs
+infra/terraform/     Cloud Run, the worker VM, Neon, R2, Pages, DNS
+infra/deploy/        the boot script that converges the worker VM
+.github/workflows/   CI, the deploy pipeline, and the eval gate
 ```

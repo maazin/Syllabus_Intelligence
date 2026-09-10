@@ -29,10 +29,10 @@ four-month term at 50 to 105 dollars for about 500 students.
 
 Three, all with a card on file even where the tier is free:
 
-- **Google Cloud** — create a project, note the project ID, enable billing.
-- **Cloudflare** — add the domain as a zone. It must be a zone in this account
+- **Google Cloud**: create a project, note the project ID, enable billing.
+- **Cloudflare**: add the domain as a zone. It must be a zone in this account
   before Terraform runs, because `dns.tf` looks it up rather than creating it.
-- **Neon** — create an account and an API key. Terraform creates the project.
+- **Neon**: create an account and an API key. Terraform creates the project.
 
 Also needed: a transactional email provider (Brevo's free tier is 300 a day,
 which is enough until it isn't) and an Anthropic API key.
