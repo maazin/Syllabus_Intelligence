@@ -1,0 +1,234 @@
+# Deploy to production (PRD section 27.1).
+#
+# The order below is the whole design, and it is chosen so that a failure at any
+# step leaves the previous version serving:
+#
+#   build and push  ->  migrate  ->  API revision  ->  web app
+#
+# Migrations run before the new revision exists, so the schema is always at or
+# ahead of the code reading it. That is only safe because section 27 requires
+# migrations to be additive: a revision that is still serving must keep working
+# against the new schema for the length of the rollout. Dropping a column is
+# therefore two deploys, never one.
+#
+# The web app ships last. It is the only piece a student sees, so shipping it
+# before its API would put a build in front of them that calls endpoints which
+# do not exist yet.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # A deploy that cannot be triggered by hand is a deploy nobody can roll back.
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Commit SHA to deploy. Leave blank to build this ref.'
+        required: false
+        type: string
+
+concurrency:
+  # Never cancelled. Interrupting a half-applied migration is worse than
+  # waiting for it, so a second push queues behind the first.
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev
+  IMAGE_PREFIX: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPOSITORY }}
+
+jobs:
+  # CI already ran on the pull request. Running it again on main is not
+  # redundant: it is the only thing standing between a bad merge queue result
+  # and production.
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  images:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for Workload Identity Federation. Without it the OIDC token is
+      # never minted and the auth step fails with a confusing 403.
+      id-token: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: tag
+        # The commit SHA, never `latest`. A moving tag makes "which code is
+        # running" unanswerable, and makes rollback a rebuild.
+        run: echo "tag=${{ inputs.image_tag || github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker "$REGISTRY" --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Four images. The worker carries Docling and its dependencies and is by
+      # far the slowest, so a registry cache is what keeps this inside the time
+      # a person will actually wait for a deploy.
+      - name: Build and push api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/api/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/api:${{ steps.tag.outputs.tag }}
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/api:cache
+          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/api:cache,mode=max
+
+      - name: Build and push worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/worker/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/worker:${{ steps.tag.outputs.tag }}
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/worker:cache
+          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/worker:cache,mode=max
+
+      - name: Build and push mlflow
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/mlflow.Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/mlflow:${{ steps.tag.outputs.tag }}
+
+      - name: Build and push airflow
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/airflow.Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/airflow:${{ steps.tag.outputs.tag }}
+
+  api:
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # Runs to completion and returns a real exit code. If a migration fails,
+      # the workflow stops here and the currently serving revision is untouched.
+      - name: Migrate the database
+        run: |
+          gcloud run jobs update "syllint-production-migrate" \
+            --region "${{ vars.GCP_REGION }}" \
+            --image "$IMAGE_PREFIX/api:${{ needs.images.outputs.tag }}" \
+            --quiet
+          gcloud run jobs execute "syllint-production-migrate" \
+            --region "${{ vars.GCP_REGION }}" \
+            --wait
+
+      - name: Roll a new API revision
+        run: |
+          gcloud run deploy "syllint-production-api" \
+            --region "${{ vars.GCP_REGION }}" \
+            --image "$IMAGE_PREFIX/api:${{ needs.images.outputs.tag }}" \
+            --quiet
+
+      # Cloud Run reports a revision ready once its startup probe passes, which
+      # only proves the process is listening. This asks the deployed URL the
+      # same question a browser would.
+      - name: Check the deployed service answers
+        run: |
+          url=$(gcloud run services describe "syllint-production-api" \
+            --region "${{ vars.GCP_REGION }}" --format 'value(status.url)')
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS --max-time 20 "$url/health" | tee /dev/stderr | grep -q '"status":"ok"'; then
+              echo "healthy"
+              exit 0
+            fi
+            echo "attempt $attempt failed; the first request also wakes Neon from suspend"
+            sleep 10
+          done
+          echo "the new revision never returned a healthy /health"
+          exit 1
+
+  # Restarting the VM re-runs the boot script, which pulls the new worker image
+  # and converges the compose stack. Blunt, and correct for one box: there is no
+  # rolling update to perform and a few seconds of queued work is not lost,
+  # because Redis persists its append-only file across the restart.
+  worker:
+    needs: [images, api]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Restart the worker VM onto the new images
+        run: |
+          gcloud compute instances reset "syllint-production-worker" \
+            --zone "${{ vars.GCP_REGION }}-a" --quiet
+
+  web:
+    needs: api
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+        working-directory: apps/web
+      - run: npm run build
+        working-directory: apps/web
+
+      # The two files that turn a generic build into this environment's build.
+      # Written after the build rather than committed, so the same source tree
+      # produces a staging artifact and a production artifact without a branch.
+      - name: Point the built app at this environment
+        run: |
+          cat > dist/web/browser/config.json <<JSON
+          {
+            "apiBase": "https://api.${{ vars.APP_DOMAIN }}/api/v1",
+            "environment": "production"
+          }
+          JSON
+          sed -i "s/APP_DOMAIN/${{ vars.APP_DOMAIN }}/g" dist/web/browser/_headers
+          echo "--- config.json ---" && cat dist/web/browser/config.json
+        working-directory: apps/web
+
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: pages deploy dist/web/browser --project-name=syllint-production --branch=main
+
+      # A deployed page that 404s on a deep link, or that points at the wrong
+      # API, both look fine on the home screen. This is the cheapest check that
+      # catches either.
+      - name: Check the deployed app
+        run: |
+          sleep 20
+          curl -fsS "https://${{ vars.APP_DOMAIN }}/config.json" | tee /dev/stderr \
+            | grep -q "api.${{ vars.APP_DOMAIN }}"
+          # A route with no file behind it must still return the app.
+          curl -fsS "https://${{ vars.APP_DOMAIN }}/timeline" | grep -qi "<app-root"

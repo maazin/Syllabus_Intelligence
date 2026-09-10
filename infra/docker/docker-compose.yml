@@ -1,0 +1,201 @@
+# Local development stack — PRD section 22.1.
+#
+# Everything here runs without a cloud account. The swap to real services
+# (Neon, R2, Brevo) is configuration, not code: MinIO speaks the S3 API that R2
+# implements, so the same boto3 calls and the same R2_* variable names work in
+# both places (18.1).
+#
+# Host ports are offset (5533, 6479, 9100, 8100, 8125) so this stack can run
+# alongside other local projects that already hold the default ports.
+#
+#   docker compose -f infra/docker/docker-compose.yml up -d postgres redis minio mailhog
+
+name: syllabus-intelligence
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: syllint
+    ports:
+      - "5533:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d syllint"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports:
+      - "6479:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # S3-compatible local stand-in for Cloudflare R2. Same API, so no code
+  # branches on environment (18.1).
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9100:9000"
+      - "9101:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Creates the bucket on first boot so a fresh clone needs no manual step.
+  minio-init:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/syllabi &&
+      echo 'bucket ready'
+      "
+
+  # Catches outgoing email locally instead of hitting Brevo/SES. Magic links
+  # land at localhost:8125 (22.1). University mail filters are aggressive and
+  # auth depends entirely on delivery, so testing this path locally matters.
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "1125:1025"
+      - "8125:8025"
+
+  # LLM tracing, prompt registry, and eval tracking (18.1). One service instead
+  # of three separate tools. In production this runs on the always-on VM from
+  # 18.2 alongside Redis and the Celery workers.
+  mlflow:
+    build:
+      context: .
+      dockerfile: mlflow.Dockerfile
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri postgresql+psycopg2://postgres:postgres@postgres:5432/mlflow
+      --serve-artifacts
+      --artifacts-destination /mlartifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5100:5000"
+    volumes:
+      - mlartifacts:/mlartifacts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # Orchestration (18.2). Runs in standalone mode locally, which bundles the
+  # scheduler, the DAG processor, and the webserver into one process. In
+  # production these are separate and continuously running, which is why 18.2
+  # sizes the VM at 8 GB once Airflow is in the picture.
+  airflow:
+    build:
+      context: .
+      dockerfile: airflow.Dockerfile
+    command: standalone
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/syllabus-intelligence/services/pipeline/dags
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres:5432/airflow
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+      _AIRFLOW_WWW_USER_USERNAME: airflow
+      _AIRFLOW_WWW_USER_PASSWORD: airflow
+      # The DAG shells out to dbt, so it needs the repo and the warehouse.
+      SYLLINT_REPO_ROOT: /opt/syllabus-intelligence
+      DBT_PROFILES_DIR: /opt/syllabus-intelligence/services/pipeline/dbt
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: syllint
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      DATABASE_URL_PSYCOPG: postgresql://postgres:postgres@postgres:5432/syllint
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    ports:
+      - "8180:8080"
+    volumes:
+      # Mounted rather than copied so a DAG edit is picked up without a rebuild.
+      - ../../services/pipeline:/opt/syllabus-intelligence/services/pipeline
+
+  api:
+    build:
+      context: ../..
+      dockerfile: services/api/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/syllint
+      REDIS_URL: redis://redis:6379/0
+      R2_ENDPOINT: http://minio:9000
+      R2_ACCESS_KEY_ID: minioadmin
+      R2_SECRET_ACCESS_KEY: minioadmin
+      R2_BUCKET: syllabi
+      EMAIL_PROVIDER: smtp
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      JWT_SECRET: local-dev-secret-not-for-production
+      ENVIRONMENT: local
+    ports:
+      - "8100:8000"
+    volumes:
+      - ../../services/api:/app/services/api
+      - ../../packages/core:/app/packages/core
+    command: uvicorn services.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: services/worker/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/syllint
+      REDIS_URL: redis://redis:6379/0
+      R2_ENDPOINT: http://minio:9000
+      R2_ACCESS_KEY_ID: minioadmin
+      R2_SECRET_ACCESS_KEY: minioadmin
+      R2_BUCKET: syllabi
+      OCR_MODE: docling
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      ENVIRONMENT: local
+    volumes:
+      - ../../services/worker:/app/services/worker
+      - ../../packages/core:/app/packages/core
+    command: celery -A services.worker.celery_app worker --loglevel=info
+
+volumes:
+  pgdata:
+  miniodata:
+  mlartifacts:

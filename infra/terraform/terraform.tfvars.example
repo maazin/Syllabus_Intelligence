@@ -1,0 +1,48 @@
+# Copy to terraform.tfvars and fill in. That file is gitignored: four of these
+# are credentials.
+#
+# The three accounts this needs, and what each one is for:
+#   GCP        Cloud Run, the worker VM, Secret Manager, Artifact Registry
+#   Cloudflare R2 object storage, DNS, Pages, rate limiting
+#   Neon       Postgres
+#
+# Costs, per section 18.5: everything except the VM and outbound email sits
+# inside a free tier, so the recurring bill is the VM at roughly six to ten
+# dollars a month plus model tokens.
+
+gcp_project_id = "your-gcp-project-id"
+gcp_region     = "us-central1" # the free Cloud Run grant is rated here
+environment    = "production"
+
+# owner/name. Only this repository can mint a deploy token.
+github_repository = "your-github-user/syllabus-intelligence"
+
+# Must already be a zone in the Cloudflare account below.
+app_domain = "syllabusintelligence.app"
+
+cloudflare_account_id = "..."
+cloudflare_api_token  = "..." # R2 edit + Zone DNS edit + Pages edit
+neon_api_key          = "..."
+llm_api_key           = "sk-ant-..."
+
+# Signup is restricted to this domain (section 15.2).
+institution_email_domain = "example.edu"
+
+# Deliverability is a launch blocker, not a detail (18.4). SPF, DKIM and DMARC
+# have to be set on this sending domain before the first real signup, and
+# tested against an actual .edu inbox.
+email_from    = "no-reply@syllabusintelligence.app"
+smtp_host     = "smtp-relay.brevo.com"
+smtp_port     = 587
+smtp_password = "..."
+
+# Filled in by the deploy workflow on every run. The values here only matter
+# for the very first apply, which has to point at something that exists.
+container_image = "us-central1-docker.pkg.dev/your-gcp-project-id/syllint/api:bootstrap"
+worker_image    = "us-central1-docker.pkg.dev/your-gcp-project-id/syllint/worker:bootstrap"
+mlflow_image    = "us-central1-docker.pkg.dev/your-gcp-project-id/syllint/mlflow:bootstrap"
+airflow_image   = "us-central1-docker.pkg.dev/your-gcp-project-id/syllint/airflow:bootstrap"
+
+# Optional. Empty disables calendar sync rather than breaking it.
+google_calendar_client_id     = ""
+google_calendar_client_secret = ""

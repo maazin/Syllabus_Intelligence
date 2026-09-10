@@ -1,0 +1,10 @@
+# Copy to backend.hcl, then: terraform init -backend-config=backend.hcl
+#
+# State is not committed. It contains the Neon connection string, the generated
+# JWT signing key, and the R2 secret in cleartext, which is why the bucket
+# wants versioning on and access restricted to the people who can apply.
+#
+#   gsutil mb -l us-central1 gs://your-tfstate-bucket
+#   gsutil versioning set on gs://your-tfstate-bucket
+
+bucket = "your-tfstate-bucket"

@@ -1,0 +1,38 @@
+# Golden-set extraction gate (PRD sections 16 and 27.2).
+#
+# This is the one CI gate allowed to fail a PR for a reason other than a bug:
+# a worse prompt is exactly as blocking as a failing test, and should be treated
+# that way by anyone — or anything — working in this repo.
+
+name: Extraction eval
+
+on:
+  pull_request:
+    paths:
+      - "packages/core/prompts/**"
+      - "services/worker/tasks/extract.py"
+      - "services/worker/tasks/resolve_dates.py"
+      - "packages/core/date_resolver/**"
+      - "tests/golden_set/**"
+  schedule:
+    # Full 100 nightly on main.
+    - cron: "0 7 * * *"
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    env:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      # Sampled subset on every push; the full set nightly.
+      GOLDEN_SET_SAMPLE: ${{ github.event_name == 'schedule' && '100' || '20' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv pip install --system -r services/worker/requirements.txt pytest
+      - name: Run the golden-set gate
+        run: pytest tests/golden_set -m eval -q -rs
+      # Every run records prompt_version so a production correction rate can be
+      # attributed back to a specific prompt (section 16).
+      - name: Report field-group scores
+        if: always()
+        run: echo "See the test output above for per-field-group F1 and ship gates."

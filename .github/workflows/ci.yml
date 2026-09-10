@@ -1,0 +1,184 @@
+# lint -> typecheck -> unit tests -> build  (PRD section 27.1)
+#
+# Unlimited minutes on public repos (18.1), which is the whole reason to make
+# the repo public.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Called by the deploy workflow, so production is gated on the same suite the
+  # pull request ran rather than on a trimmed copy of it that drifts.
+  workflow_call:
+
+concurrency:
+  # Keyed by workflow as well as ref. A push to main starts this workflow and
+  # also starts Deploy, which calls this workflow; on a ref-only key those two
+  # runs share a group and cancel each other, and the deploy fails for a reason
+  # that looks like nothing to do with deploying.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv tool run ruff check .
+      - run: uv tool run ruff format --check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # Installed into the same environment mypy runs in. `uv tool run mypy`
+      # builds an isolated environment that cannot see these, so every import of
+      # sqlalchemy, pydantic or the shared library resolved to a missing module
+      # and the job reported hundreds of findings that were all one missing path.
+      - run: uv pip install --system -r services/worker/requirements.txt -r services/api/requirements.txt mypy
+      # strict on packages/core, typed-but-not-strict on services/* (section 27).
+      # Two invocations rather than a per-module `strict = true`, because mypy 2
+      # leaks that flag set into the rest of the run.
+      - run: python -m mypy --strict packages/core
+      - run: python -m mypy services
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: syllint
+        ports: ["5533:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5533/syllint
+      JWT_SECRET: ci-secret-long-enough-for-hmac-sha256-minimum
+      INSTITUTION_EMAIL_DOMAIN: test.edu
+      ENVIRONMENT: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv pip install --system -r services/api/requirements.txt pdfplumber python-docx beautifulsoup4 reportlab pillow pytest anthropic
+      - run: |
+          cd packages/core && alembic upgrade head
+      - run: python scripts/generate_fixture_syllabi.py
+      - run: python scripts/seed_dev_data.py
+      # The eval gate is deliberately excluded here: it costs money and lives in
+      # its own workflow (27.2).
+      - run: pytest -q -m "not eval"
+
+  # The corpus transformation is SQL, so it is tested as SQL: dbt builds the
+  # models against a real Postgres and runs its own assertions. A model that
+  # compiles but publishes an unreviewed profile is a 14.2 violation, and
+  # `dbt test` is what catches it.
+  dbt:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: syllint
+        ports: ["5533:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5533/syllint
+      DBT_PROFILES_DIR: services/pipeline/dbt
+      POSTGRES_PORT: "5533"
+      POSTGRES_DB: syllint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv pip install --system "dbt-core>=1.8" "dbt-postgres>=1.8" "psycopg[binary]" sqlalchemy alembic pydantic
+      - run: cd packages/core && alembic upgrade head
+      - run: python scripts/seed_dev_data.py
+      # Compiles every model without touching the warehouse, so a broken ref or
+      # a bad macro fails in seconds rather than after a full build.
+      - run: cd services/pipeline/dbt && dbt parse
+      - run: cd services/pipeline/dbt && dbt build
+
+  # Terraform is validated, never applied, from CI. An apply needs cloud
+  # credentials and a human who meant it.
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - run: terraform fmt -check -recursive
+        working-directory: infra/terraform
+      - run: terraform init -backend=false
+        working-directory: infra/terraform
+      - run: terraform validate
+        working-directory: infra/terraform
+
+  # A DAG that fails to import is a silently dead schedule, and Airflow reports
+  # that only in its own UI. Parsing it in CI turns it into a failed build.
+  airflow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check the DAG imports
+        run: |
+          pip install "apache-airflow==2.10.5" \
+            --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.11.txt"
+          python - <<'PY'
+          from airflow.models import DagBag
+          bag = DagBag('services/pipeline/dags', include_examples=False)
+          assert not bag.import_errors, bag.import_errors
+          assert 'corpus_aggregation' in bag.dags
+          dag = bag.dags['corpus_aggregation']
+          print(f"{dag.dag_id}: {len(dag.tasks)} tasks, schedule {dag.schedule_interval}")
+          PY
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+        working-directory: apps/web
+      # A type error in a template is a broken screen, so the build is the gate.
+      - run: npm run build
+        working-directory: apps/web
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      # The e2e suite stubs the API, so it needs no database or worker. It also
+      # carries the accessibility checks, which are the ones most likely to
+      # regress unnoticed.
+      - run: npm run e2e
+        working-directory: apps/web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/test-results/
+          retention-days: 7
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test, dbt, terraform, airflow, web]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f services/api/Dockerfile -t syllint-api .
+      - run: docker build -f services/worker/Dockerfile -t syllint-worker .
