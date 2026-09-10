@@ -1,0 +1,22 @@
+[project]
+name = "syllint-core"
+version = "0.1.0"
+description = "Shared library: extraction schemas, DB models, date resolver, workload model, prompts"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.7",
+  "sqlalchemy>=2.0",
+  "alembic>=1.13",
+  "psycopg[binary]>=3.1",
+  "python-dateutil>=2.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["schemas", "db", "date_resolver", "workload_model", "prompts"]

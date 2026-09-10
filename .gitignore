@@ -1,0 +1,42 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+node_modules/
+apps/web/dist/
+apps/web/.angular/
+apps/web/test-results/
+apps/web/playwright-report/
+
+# --- Terraform ---
+# Provider binaries are hundreds of megabytes and are re-fetched by `init`.
+infra/terraform/.terraform/
+# State holds the Neon connection string, the generated JWT signing key and the
+# R2 secret in cleartext. It belongs in the state bucket, never in git.
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+# Real values for the example files beside them.
+*.tfvars
+!*.tfvars.example
+backend.hcl
+
+# --- macOS ---
+.DS_Store
+
+# --- dbt ---
+# Compiled SQL, the manifest, the parse cache and run logs are all rebuilt by
+# `dbt build`. The manifest in particular is machine-specific and produces a
+# large diff on every run.
+services/pipeline/dbt/target/
+services/pipeline/dbt/logs/
+services/pipeline/dbt/dbt_packages/
+
+# --- editor and agent tooling ---
+.claude/

@@ -1,0 +1,76 @@
+[project]
+name = "syllabus-intelligence"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.uv.workspace]
+members = ["packages/core", "services/api", "services/worker"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# B008 flags function calls in default arguments. FastAPI's `Depends()` /
+# `Query()` / `File()` pattern is exactly that by design, so it is not a finding
+# in the HTTP layer.
+"services/api/**" = ["B008"]
+# Tests build deliberately long literal fixtures; wrapping them hurts readability.
+"**/tests/**" = ["E501"]
+"tests/**" = ["E501"]
+
+[tool.mypy]
+# 3.11 is what the venv, the CI runner and the worker image all use. Declaring
+# 3.12 here made mypy reason about a runtime nothing runs on.
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# The shared library is installed as top-level packages (`schemas`, `db`,
+# `date_resolver`, ...), not as `packages.core.*`. Without this, every import of
+# it from services/ is an unresolved module, which is why `mypy services`
+# reported hundreds of errors that were all the same missing path.
+mypy_path = "packages/core"
+
+# Tests are deliberately unannotated: a fixture that spells out its own types is
+# harder to read than the case it is describing, and the value of typing here is
+# in the code that ships.
+exclude = "(^|/)tests/"
+
+# Section 27 wants strict on the shared library and typed-but-not-strict on
+# services. That split is expressed as two mypy invocations in CI rather than as
+# a per-module `strict = true` here, because mypy 2.x lets the strict flag set
+# from an override leak into the rest of the run: the same `services` check went
+# from 22 findings to 64 purely from the presence of an override aimed at
+# packages/core.
+
+# Third-party packages that ship no stubs. Listed one by one rather than with a
+# global `ignore_missing_imports`, so a genuinely missing first-party module
+# still fails instead of being silently accepted.
+[[tool.mypy.overrides]]
+module = [
+  "anthropic.*",
+  "boto3.*",
+  "botocore.*",
+  "celery.*",
+  "docling.*",
+  "mlflow.*",
+  "pdfplumber.*",
+  "docx.*",
+  "bs4.*",
+  "reportlab.*",
+  "PIL.*",
+  "jwt.*",
+  "airflow.*",
+  "psycopg.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["packages/core/tests", "services/worker/tests", "services/api/tests", "tests"]
+markers = [
+  "eval: golden-set evaluation tests (section 16)",
+]
