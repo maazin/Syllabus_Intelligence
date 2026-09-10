@@ -1,0 +1,388 @@
+/* Review screen.
+ *
+ * The list is the screen. Rows are separated by hairlines rather than boxed
+ * individually, which keeps a sixty-item load calm to scroll, and the primary
+ * action anchors the bottom full-width. Reading width caps near 68ch so long
+ * source quotes stay scannable.
+ */
+
+.review {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.review__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.review__lede {
+  margin-top: var(--space-3);
+  color: var(--text-secondary);
+  max-width: 44ch;
+}
+
+/* ------------------------------------------------------------- progress */
+
+/* No box. A number, a percentage, and a rule, which is enough. */
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.progress__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.progress__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.progress__percent {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.progress__track {
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.progress__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-full);
+  transition: width 0.25s ease;
+}
+
+/* --------------------------------------------------------------- groups */
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.group__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.group__note {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  max-width: 60ch;
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ----------------------------------------------------------------- rows */
+
+/* A hairline between rows, no border around each. */
+.row {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.rows > .row:first-child {
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Rows needing attention keep a heavy left rule. Paired with the "Worth a
+   look" heading and a chip, so grouping never rests on colour alone. */
+.row--attention {
+  border-left: 3px solid var(--warning);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--bg-surface);
+}
+
+.row--attention.row--accepted {
+  border-left-color: var(--success);
+}
+
+.row--quiet {
+  padding: var(--space-4) 0;
+}
+
+.row__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: var(--space-4) var(--space-2);
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.row__toggle:hover {
+  background: var(--bg-hover);
+}
+
+.row__main {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.row__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* The item title is the thing being scanned, so it carries the weight. */
+.row__title {
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.row__meta {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.row__date {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+}
+
+/* A quiet marker that a collapsed row carries a note, so the student can see
+   there is something to read without opening every row. */
+.row__flagged {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-subtle);
+  border: 1px solid var(--warning-border);
+  color: var(--warning);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+}
+
+.row__chevron {
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.row__detail {
+  padding: 0 var(--space-2) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.row__warning {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  font-size: var(--text-sm);
+  color: var(--warning);
+  background: var(--warning-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.row__warning-icon {
+  font-weight: var(--weight-bold);
+  flex-shrink: 0;
+}
+
+.row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* ---------------------------------------------------------- source quote */
+
+/* The syllabus sentence an item came from. Filled and inset so it reads as
+   quoted material rather than as our own copy. */
+.source {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+}
+
+.source__text {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.source__page {
+  font-size: var(--text-xs);
+  font-style: normal;
+  color: var(--text-tertiary);
+}
+
+/* ---------------------------------------------------------------- edit */
+
+.edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 20rem;
+}
+
+.edit__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* --------------------------------------------------------------- footer */
+
+/* The finishing action is full width and anchors the task, which is the Base
+   pattern for a primary CTA. */
+.review__footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: stretch;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.review__blocker,
+.review__note {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* -------------------------------------------------- states and notices */
+
+.notice {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+}
+
+.notice--danger {
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+.notice__icon {
+  font-weight: var(--weight-bold);
+  flex-shrink: 0;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A shaped placeholder rather than a spinner, so the layout does not shift
+   when content lands. */
+.skeleton {
+  height: 72px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    var(--bg-sunken) 25%,
+    var(--bg-hover) 37%,
+    var(--bg-sunken) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+
+.empty {
+  padding: var(--space-7) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.empty p {
+  color: var(--text-secondary);
+  max-width: 48ch;
+}
+
+/* --------------------------------------------------------------- mobile */
+
+@media (max-width: 40rem) {
+  .review {
+    padding: var(--space-5) var(--space-4) var(--space-8);
+    gap: var(--space-5);
+  }
+
+  /* Stacking keeps the title readable instead of squeezing it against the
+     date on a narrow screen. */
+  .row__main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .row__actions .btn,
+  .edit__actions .btn {
+    flex: 1;
+  }
+}

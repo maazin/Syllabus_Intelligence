@@ -1,0 +1,223 @@
+<div class="search">
+  <header class="search__header">
+    <h1>Find a course</h1>
+    <p class="search__lede">
+      Search by how a course actually runs, using what past syllabi say about it.
+    </p>
+  </header>
+
+  <form class="controls card" (ngSubmit)="search()">
+    <div class="controls__row">
+      <div class="field controls__query">
+        <label class="field__label" for="q">Course code or title</label>
+        <input
+          class="input"
+          id="q"
+          type="search"
+          placeholder="ENG 3014, or literature"
+          [ngModel]="query()"
+          (ngModelChange)="query.set($event)"
+          name="q"
+        />
+      </div>
+      <button class="btn btn--primary" type="submit" [disabled]="loading()">
+        {{ loading() ? 'Searching' : 'Search' }}
+      </button>
+    </div>
+
+    <fieldset class="facets">
+      <legend class="facets__legend">Narrow it down</legend>
+
+      <div class="facets__grid">
+        <div class="field">
+          <label class="field__label" for="credits">Credits</label>
+          <select
+            class="input"
+            id="credits"
+            name="credits"
+            [ngModel]="credits()"
+            (ngModelChange)="credits.set($event)"
+          >
+            <option [ngValue]="null">Any</option>
+            <option [ngValue]="1">1 credit</option>
+            <option [ngValue]="3">3 credits</option>
+            <option [ngValue]="4">4 credits</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="mix">How you are graded</label>
+          <select
+            class="input"
+            id="mix"
+            name="mix"
+            [ngModel]="mix()"
+            (ngModelChange)="mix.set($event)"
+          >
+            <option [ngValue]="null">Any</option>
+            @for (option of mixOptions; track option.value) {
+              <option [ngValue]="option.value">{{ option.label }}</option>
+            }
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="hours">Hours per week, at most</label>
+          <select
+            class="input"
+            id="hours"
+            name="hours"
+            [ngModel]="maxHours()"
+            (ngModelChange)="maxHours.set($event)"
+          >
+            <option [ngValue]="null">Any</option>
+            <option [ngValue]="6">6 hours</option>
+            <option [ngValue]="9">9 hours</option>
+            <option [ngValue]="12">12 hours</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="toggles">
+        <label class="toggle">
+          <input
+            type="checkbox"
+            name="noGroup"
+            [ngModel]="noGroupProject()"
+            (ngModelChange)="noGroupProject.set($event)"
+          />
+          <span>No group project</span>
+        </label>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            name="noAttendance"
+            [ngModel]="noAttendance()"
+            (ngModelChange)="noAttendance.set($event)"
+          />
+          <span>Attendance not graded</span>
+        </label>
+      </div>
+
+      @if (activeFilterCount() > 0) {
+        <button class="btn btn--ghost btn--sm" type="button" (click)="clearFilters()">
+          Clear {{ activeFilterCount() }} filters
+        </button>
+      }
+    </fieldset>
+  </form>
+
+  @if (error(); as message) {
+    <div class="notice notice--danger" role="alert">{{ message }}</div>
+  }
+
+  @if (searched() && !loading()) {
+    <p class="results__count" aria-live="polite">
+      {{ total() }} {{ total() === 1 ? 'course' : 'courses' }}
+    </p>
+
+    @if (known().length > 0) {
+      <ul class="results">
+        @for (course of known(); track course.course_id + course.term) {
+          <li class="result card">
+            <div class="result__head">
+              <div>
+                <h2 class="result__title">
+                  {{ course.subject_code }} {{ course.catalog_number }}
+                </h2>
+                <p class="result__name">{{ course.title }}</p>
+              </div>
+              <span class="chip chip--neutral">{{ course.credits }} credits</span>
+            </div>
+
+            <!-- Section 14.2: every profile says what it is based on and how
+                 old that source is. -->
+            <p class="result__provenance">{{ course.provenance }}</p>
+
+            <dl class="facts">
+              @if (course.est_weekly_hours !== null) {
+                <div class="fact">
+                  <dt>Time</dt>
+                  <dd>about {{ course.est_weekly_hours }} hours a week</dd>
+                </div>
+              }
+              @if (course.assessment_mix) {
+                <div class="fact">
+                  <dt>Graded by</dt>
+                  <dd>{{ mixLabel(course.assessment_mix) }}</dd>
+                </div>
+              }
+              <div class="fact">
+                <dt>Group work</dt>
+                <dd>{{ course.has_group_project ? 'Yes' : 'None listed' }}</dd>
+              </div>
+              <div class="fact">
+                <dt>Attendance</dt>
+                <dd>{{ course.attendance_graded ? 'Counts toward grade' : 'Not graded' }}</dd>
+              </div>
+              <div class="fact">
+                <dt>Final</dt>
+                <dd>{{ examLabel(course.final_exam_type) }}</dd>
+              </div>
+              @if (course.graded_item_count !== null) {
+                <div class="fact">
+                  <dt>Graded items</dt>
+                  <dd>{{ course.graded_item_count }}</dd>
+                </div>
+              }
+              @if (course.est_materials_cost_usd) {
+                <div class="fact">
+                  <dt>Materials</dt>
+                  <dd>about {{ course.est_materials_cost_usd | currency: 'USD' : 'symbol' : '1.0-0' }}</dd>
+                </div>
+              }
+              @if (course.meeting_pattern) {
+                <div class="fact">
+                  <dt>Meets</dt>
+                  <dd>{{ course.meeting_pattern }}</dd>
+                </div>
+              }
+            </dl>
+          </li>
+        }
+      </ul>
+    }
+
+    @if (unknown().length > 0) {
+      <!-- US-8: these stay in the results on purpose. An empty profile is a
+           prompt to upload, and uploads are where the corpus comes from. -->
+      <section class="unprofiled" aria-labelledby="unprofiled-heading">
+        <h2 id="unprofiled-heading" class="unprofiled__heading">
+          No syllabus on file yet
+        </h2>
+        <p class="unprofiled__note">
+          Nobody has uploaded a syllabus for these, so we have nothing to say about them yet.
+          If you are taking one, uploading it fills this in for everyone.
+        </p>
+        <ul class="unprofiled__list">
+          @for (course of unknown(); track course.course_id) {
+            <li class="unprofiled__item">
+              <span class="unprofiled__code">
+                {{ course.subject_code }} {{ course.catalog_number }}
+              </span>
+              <span class="unprofiled__title">{{ course.title }}</span>
+              <a class="btn btn--secondary btn--sm" routerLink="/upload">Upload it</a>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    @if (total() === 0) {
+      <div class="empty card">
+        <h2>Nothing matched</h2>
+        <p>Try removing a filter, or search by course code instead.</p>
+        @if (activeFilterCount() > 0) {
+          <button class="btn btn--secondary" type="button" (click)="clearFilters()">
+            Clear filters
+          </button>
+        }
+      </div>
+    }
+  }
+</div>

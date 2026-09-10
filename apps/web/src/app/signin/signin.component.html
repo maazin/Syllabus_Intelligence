@@ -1,0 +1,56 @@
+<div class="signin">
+  <div class="signin__panel">
+    @if (!sent()) {
+      <div class="signin__intro">
+        <h1>Syllabus Intelligence</h1>
+        <p class="signin__lede">
+          See what your semester actually looks like before it happens.
+        </p>
+      </div>
+
+      <form class="signin__form" (ngSubmit)="submit()">
+        <div class="field">
+          <label class="field__label" for="email">Your school email</label>
+          <input
+            class="input"
+            id="email"
+            name="email"
+            type="email"
+            autocomplete="email"
+            inputmode="email"
+            placeholder="you@school.edu"
+            required
+            [ngModel]="email()"
+            (ngModelChange)="email.set($event)"
+          />
+          <p class="field__hint">
+            We will email you a link to sign in. There is no password to remember.
+          </p>
+        </div>
+
+        @if (error(); as message) {
+          <p class="signin__error" role="alert">{{ message }}</p>
+        }
+
+        <button class="btn btn--primary btn--block" type="submit" [disabled]="busy() || !email().trim()">
+          {{ busy() ? 'Sending' : 'Email me a link' }}
+        </button>
+      </form>
+    } @else {
+      <div class="signin__sent" role="status">
+        <span class="signin__check" aria-hidden="true">&check;</span>
+        <h1>Check your email</h1>
+        <p class="signin__lede">
+          We sent a sign-in link to <strong>{{ email() }}</strong>. It works for 15 minutes.
+        </p>
+        <p class="signin__hint">
+          Nothing arrived? University mail filters can be slow, so give it a minute and check
+          your spam folder.
+        </p>
+        <button class="btn btn--secondary btn--block" type="button" (click)="startOver()">
+          Use a different address
+        </button>
+      </div>
+    }
+  </div>
+</div>

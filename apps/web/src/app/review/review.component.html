@@ -1,0 +1,319 @@
+<div class="review">
+  <header class="review__header">
+    <div class="review__heading">
+      <h1>Check your deadlines</h1>
+      <p class="review__lede">
+        We pulled these from your syllabus. Most are ready to go. The ones we were unsure
+        about are listed first.
+      </p>
+    </div>
+
+    @if (!loading()) {
+      <!-- Progress counts accepted items, so it reads as almost-done from the
+           start. That is accurate: most extractions are already correct. -->
+      <div class="progress" role="group" aria-labelledby="progress-label">
+        <div class="progress__row">
+          <span id="progress-label" class="progress__label">
+            {{ acceptedCount() }} of {{ total() }} confirmed
+          </span>
+          <span class="progress__percent">{{ progressPercent() }}%</span>
+        </div>
+        <div
+          class="progress__track"
+          role="progressbar"
+          [attr.aria-valuenow]="acceptedCount()"
+          aria-valuemin="0"
+          [attr.aria-valuemax]="total()"
+          [attr.aria-label]="'Review progress: ' + acceptedCount() + ' of ' + total() + ' confirmed'"
+        >
+          <div class="progress__fill" [style.width.%]="progressPercent()"></div>
+        </div>
+      </div>
+    }
+  </header>
+
+  @if (error(); as message) {
+    <div class="notice notice--danger" role="alert">
+      <span class="notice__icon" aria-hidden="true">!</span>
+      <p>{{ message }}</p>
+    </div>
+  }
+
+  @if (loading()) {
+    <div class="loading" role="status">
+      <span class="visually-hidden">Loading your deadlines</span>
+      @for (placeholder of [1, 2, 3, 4]; track placeholder) {
+        <div class="skeleton"></div>
+      }
+    </div>
+  } @else if (total() === 0) {
+    <div class="empty card">
+      <h2>Nothing to review yet</h2>
+      <p>
+        We did not find any graded items in this document. You can add them by hand and keep
+        the rest of the course details.
+      </p>
+      <a class="btn btn--primary" routerLink="/upload">Add items manually</a>
+    </div>
+  } @else {
+    @if (needsAttention().length > 0) {
+      <section class="group" aria-labelledby="attention-heading">
+        <div class="group__header">
+          <h2 id="attention-heading">Worth a look</h2>
+          <span class="chip chip--warning">{{ needsAttention().length }} to confirm</span>
+        </div>
+        <p class="group__note">
+          These need a decision from you. Everything else below is already set.
+        </p>
+
+        <ul class="rows">
+          @for (row of needsAttention(); track row.assessment_id) {
+            <li class="row row--attention" [class.row--accepted]="row.accepted">
+              <div class="row__main">
+                <div class="row__identity">
+                  <span class="row__title">{{ row.title }}</span>
+                  <span class="row__meta">
+                    {{ row.course }}
+                    <span aria-hidden="true">&middot;</span>
+                    {{ typeLabel(row.type) }}
+                    @if (row.weight_pct !== null) {
+                      <span aria-hidden="true">&middot;</span>
+                      {{ row.weight_pct }}% of grade
+                    }
+                  </span>
+                </div>
+
+                <div class="row__date">
+                  <si-due-date
+                    [dueAt]="row.due_at"
+                    [precision]="row.due_precision"
+                    [timeInferred]="row.time_inferred"
+                  />
+                </div>
+              </div>
+
+              @if (row.warning; as warning) {
+                <p class="row__warning">
+                  <span class="row__warning-icon" aria-hidden="true">!</span>
+                  {{ warning }}
+                </p>
+              }
+
+              <!-- The source sentence, always visible on a low-confidence row.
+                   Verifying by glance is what keeps review under 90 seconds. -->
+              <blockquote class="source">
+                <span class="source__text">{{ row.source_span }}</span>
+                @if (row.page_ref !== null) {
+                  <cite class="source__page">Page {{ row.page_ref }}</cite>
+                }
+              </blockquote>
+
+              <div class="row__actions">
+                @if (editingId() === row.assessment_id) {
+                  <div class="edit">
+                    <label class="field__label" [attr.for]="'date-' + row.assessment_id">
+                      Correct date
+                    </label>
+                    <input
+                      class="input"
+                      type="date"
+                      [id]="'date-' + row.assessment_id"
+                      [ngModel]="draftDate()"
+                      (ngModelChange)="draftDate.set($event)"
+                    />
+                    <div class="edit__actions">
+                      <button
+                        class="btn btn--primary btn--sm"
+                        type="button"
+                        [disabled]="saving() || !draftDate()"
+                        (click)="saveDate(row)"
+                      >
+                        Save
+                      </button>
+                      <button class="btn btn--ghost btn--sm" type="button" (click)="cancelEditing()">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                } @else {
+                  @if (row.accepted) {
+                    <span class="chip chip--success">
+                      <span aria-hidden="true">&check;</span> Confirmed
+                    </span>
+                  } @else {
+                    <button class="btn btn--primary btn--sm" type="button" (click)="accept(row.assessment_id)">
+                      Looks right
+                    </button>
+                  }
+                  <button class="btn btn--secondary btn--sm" type="button" (click)="startEditing(row)">
+                    Change date
+                  </button>
+                }
+              </div>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    @if (routine().length > 0) {
+      <section class="group" aria-labelledby="routine-heading">
+        <div class="group__header">
+          <h2 id="routine-heading">Ready to go</h2>
+          <span class="chip chip--neutral">{{ routine().length }} items</span>
+        </div>
+        <p class="group__note">
+          We are confident about these. Open one if you want to check it against your syllabus.
+        </p>
+
+        <ul class="rows">
+          @for (row of routine(); track row.assessment_id) {
+            <li class="row" [class.row--open]="row.expanded">
+              <button
+                class="row__toggle"
+                type="button"
+                [attr.aria-expanded]="row.expanded"
+                [attr.aria-controls]="'detail-' + row.assessment_id"
+                (click)="toggleExpanded(row.assessment_id)"
+              >
+                <span class="row__main">
+                  <span class="row__identity">
+                    <span class="row__title">{{ row.title }}</span>
+                    <span class="row__meta">
+                      {{ row.course }}
+                      <span aria-hidden="true">&middot;</span>
+                      {{ typeLabel(row.type) }}
+                      @if (row.weight_pct !== null) {
+                        <span aria-hidden="true">&middot;</span>
+                        {{ row.weight_pct }}% of grade
+                      }
+                    </span>
+                  </span>
+
+                  <span class="row__date">
+                    <si-due-date
+                      [dueAt]="row.due_at"
+                      [precision]="row.due_precision"
+                      [timeInferred]="row.time_inferred"
+                    />
+                  </span>
+                </span>
+                @if (row.warning) {
+                  <span class="row__flagged" aria-label="This item has a note">
+                    <span aria-hidden="true">!</span>
+                  </span>
+                }
+                <span class="row__chevron" aria-hidden="true">{{ row.expanded ? '&minus;' : '+' }}</span>
+              </button>
+
+              @if (row.expanded) {
+                <div class="row__detail" [id]="'detail-' + row.assessment_id">
+                  @if (row.warning; as warning) {
+                    <p class="row__warning">
+                      <span class="row__warning-icon" aria-hidden="true">!</span>
+                      {{ warning }}
+                    </p>
+                  }
+                  <blockquote class="source">
+                    <span class="source__text">{{ row.source_span }}</span>
+                    @if (row.page_ref !== null) {
+                      <cite class="source__page">Page {{ row.page_ref }}</cite>
+                    }
+                  </blockquote>
+
+                  @if (editingId() === row.assessment_id) {
+                    <div class="edit">
+                      <label class="field__label" [attr.for]="'date-' + row.assessment_id">
+                        Correct date
+                      </label>
+                      <input
+                        class="input"
+                        type="date"
+                        [id]="'date-' + row.assessment_id"
+                        [ngModel]="draftDate()"
+                        (ngModelChange)="draftDate.set($event)"
+                      />
+                      <div class="edit__actions">
+                        <button
+                          class="btn btn--primary btn--sm"
+                          type="button"
+                          [disabled]="saving() || !draftDate()"
+                          (click)="saveDate(row)"
+                        >
+                          Save
+                        </button>
+                        <button class="btn btn--ghost btn--sm" type="button" (click)="cancelEditing()">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  } @else {
+                    <button class="btn btn--secondary btn--sm" type="button" (click)="startEditing(row)">
+                      Change date
+                    </button>
+                  }
+                </div>
+              }
+            </li>
+          }
+        </ul>
+
+        @if (acceptedCount() < total()) {
+          <button class="btn btn--secondary" type="button" (click)="acceptAllRoutine()">
+            Confirm all {{ routine().length }}
+          </button>
+        }
+      </section>
+    }
+
+    @if (unscheduled().length > 0) {
+      <!-- Section 9.3: tbd items live in their own tray and never reach a
+           calendar. Showing them here keeps them visible without pretending
+           we know when they happen. -->
+      <section class="group" aria-labelledby="unscheduled-heading">
+        <div class="group__header">
+          <h2 id="unscheduled-heading">No date yet</h2>
+          <span class="chip chip--neutral">{{ unscheduled().length }} items</span>
+        </div>
+        <p class="group__note">
+          Your syllabus does not give dates for these. They stay off your calendar until you
+          add one.
+        </p>
+        <ul class="rows rows--plain">
+          @for (row of unscheduled(); track row.assessment_id) {
+            <li class="row row--quiet">
+              <div class="row__main">
+                <div class="row__identity">
+                  <span class="row__title">{{ row.title }}</span>
+                  <span class="row__meta">{{ row.course }}</span>
+                </div>
+                <button class="btn btn--secondary btn--sm" type="button" (click)="startEditing(row)">
+                  Add a date
+                </button>
+              </div>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    <footer class="review__footer">
+      @if (!canFinish()) {
+        <p class="review__blocker">
+          Confirm the {{ needsAttention().length }} items above to finish.
+        </p>
+      }
+      <button
+        class="btn btn--primary btn--block"
+        type="button"
+        [disabled]="!canFinish() || saving()"
+        (click)="finish()"
+      >
+        {{ saving() ? 'Saving' : 'Add to my timeline' }}
+      </button>
+      <p class="review__note">
+        Nothing goes to your calendar until you finish here.
+      </p>
+    </footer>
+  }
+</div>

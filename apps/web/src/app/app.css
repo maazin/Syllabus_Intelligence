@@ -1,0 +1,175 @@
+/* App shell.
+ *
+ * Uber's chrome is minimal: a thin bar with a wordmark and the destinations,
+ * separated from content by a single hairline rather than by shadow or fill.
+ */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.topbar__inner {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* The wordmark is set heavy and tight, which is the most recognisable single
+   detail of this language. */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  text-decoration: none;
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-display);
+  /* The wordmark is a single unit. Letting it wrap turns a two-word name into
+     a two-line block and pushes the whole bar out of alignment. */
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.brand__mark {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+}
+
+.nav {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.nav__link {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  /* A destination label reads as one thing; wrapping it mid-phrase makes the
+     bar look broken rather than dense. */
+  white-space: nowrap;
+}
+
+.nav__link:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* The active destination is marked by full-strength text and weight, not by a
+   colour fill. Weight and contrast carry it, so it survives grayscale. */
+.nav__link--on {
+  color: var(--text-primary);
+  font-weight: var(--weight-bold);
+  background: var(--bg-sunken);
+}
+
+.topbar .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.main {
+  min-height: calc(100dvh - 64px);
+}
+
+/* ---------------------------------------------------------------- tabbar */
+
+.tabbar {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+  /* Clear of the home indicator on a modern phone. */
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 56px;
+  text-decoration: none;
+  color: var(--text-tertiary);
+}
+
+/* Active state is full-strength text plus a heavier label, so the current tab
+   is identifiable without relying on hue. */
+.tab--on {
+  color: var(--text-primary);
+}
+
+.tab--on .tab__label {
+  font-weight: var(--weight-bold);
+}
+
+/* Stroked SVG rather than a unicode glyph: symbol coverage differs by
+   platform, and a fallback box in the tab bar looks broken. currentColor means
+   the active state needs no separate icon. */
+.tab__icon {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tab--on .tab__icon {
+  stroke-width: 2.2;
+}
+
+.tab__label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+@media (max-width: 40rem) {
+  .topbar__inner {
+    padding: 0 var(--space-4);
+    min-height: 56px;
+  }
+
+  .topbar .nav {
+    display: none;
+  }
+
+  .tabbar {
+    display: flex;
+  }
+
+  .main {
+    min-height: calc(100dvh - 56px);
+  }
+
+  /* Reserve room so the bar never covers the last item in a list. */
+  .main--with-tabs {
+    padding-bottom: 64px;
+  }
+}

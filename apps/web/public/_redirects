@@ -1,0 +1,11 @@
+# Cloudflare Pages routing for a single-page app.
+#
+# Without this, every route except "/" is a 404 on refresh or on a shared link.
+# Pages serves files, and there is no file at /timeline: the Angular router
+# creates that path in the browser after index.html has loaded. The 200 status
+# is the part that matters, because a 301 would change the URL and the router
+# would never see the original path.
+#
+# Assets are hashed and served from real files, so they match before this rule
+# and are unaffected.
+/*    /index.html   200

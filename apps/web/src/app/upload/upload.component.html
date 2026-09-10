@@ -1,0 +1,108 @@
+<div class="upload">
+  <header class="upload__header">
+    <h1>Add your syllabi</h1>
+    <p class="upload__lede">
+      Drop in up to {{ MAX_FILES }} files and we will pull out every graded item, work out the
+      dates, and put them on one timeline.
+    </p>
+  </header>
+
+  <!-- The drop zone is also a label wrapping a file input, so it works by
+       click, by keyboard, and by drag without three separate controls. -->
+  <label
+    class="dropzone"
+    [class.dropzone--active]="dragging()"
+    (dragover)="onDragOver($event)"
+    (dragleave)="onDragLeave()"
+    (drop)="onDrop($event)"
+  >
+    <input
+      class="visually-hidden"
+      type="file"
+      multiple
+      [accept]="accepted"
+      (change)="onPicked($event)"
+    />
+    <span class="dropzone__icon" aria-hidden="true">&plus;</span>
+    <span class="dropzone__title">Choose files or drop them here</span>
+    <span class="dropzone__hint">
+      PDF, Word, images, or plain text. Up to {{ MAX_MB }} MB each. A photo of a printout is
+      fine.
+    </span>
+  </label>
+
+  @if (error(); as message) {
+    <p class="notice notice--warning" role="alert">{{ message }}</p>
+  }
+
+  @if (rows().length > 0) {
+    <ul class="files">
+      @for (row of rows(); track row.file.name; let i = $index) {
+        <li class="file" [attr.data-status]="row.status">
+          <div class="file__main">
+            <span class="file__name">{{ row.file.name }}</span>
+            <span class="file__size">{{ sizeLabel(row.file.size) }}</span>
+          </div>
+
+          <div class="file__status">
+            @switch (row.status) {
+              @case ('pending') {
+                <span class="chip chip--neutral">Ready to upload</span>
+              }
+              @case ('uploading') {
+                <span class="chip chip--info">Uploading</span>
+              }
+              @case ('queued') {
+                <span class="chip chip--info">Reading</span>
+              }
+              @case ('ready') {
+                <span class="chip chip--success">Ready</span>
+              }
+              @case ('failed') {
+                <span class="chip chip--danger">Could not read</span>
+              }
+            }
+
+            @if (row.status === 'pending') {
+              <button
+                class="file__remove"
+                type="button"
+                [attr.aria-label]="'Remove ' + row.file.name"
+                (click)="remove(i)"
+              >
+                <span aria-hidden="true">&times;</span>
+              </button>
+            }
+          </div>
+
+          @if (row.message; as message) {
+            <p class="file__message">{{ message }}</p>
+          }
+        </li>
+      }
+    </ul>
+  }
+
+  <div class="upload__actions">
+    @if (canUpload()) {
+      <button class="btn btn--primary btn--block" type="button" (click)="upload()">
+        Read {{ rows().length === 1 ? 'this syllabus' : 'these syllabi' }}
+      </button>
+    }
+    @if (allDone() && finished().length > 0) {
+      <button class="btn btn--primary btn--block" type="button" (click)="review()">
+        Check what we found
+      </button>
+    }
+    <a class="btn btn--ghost btn--block" routerLink="/timeline">Skip for now</a>
+  </div>
+
+  <aside class="reassure">
+    <h2>What happens to your files</h2>
+    <ul>
+      <li>Your upload stays private to you. We never show the file to another student.</li>
+      <li>Nothing reaches your calendar until you have checked the dates yourself.</li>
+      <li>You can delete your account and everything in it at any time.</li>
+    </ul>
+  </aside>
+</div>

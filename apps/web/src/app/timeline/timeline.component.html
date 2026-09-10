@@ -1,0 +1,162 @@
+<div class="timeline">
+  <header class="timeline__header">
+    <div>
+      <h1>Your semester</h1>
+      <p class="timeline__lede">
+        Everything from every syllabus you uploaded, on one list.
+      </p>
+    </div>
+    <a class="btn btn--secondary" routerLink="/upload">Add a syllabus</a>
+  </header>
+
+  @if (error(); as message) {
+    <div class="notice notice--danger" role="alert">{{ message }}</div>
+  } @else if (loading()) {
+    <div class="loading" role="status">
+      <span class="visually-hidden">Loading your semester</span>
+      @for (n of [1, 2, 3]; track n) {
+        <div class="skeleton"></div>
+      }
+    </div>
+  } @else if (items().length === 0) {
+    <div class="empty card">
+      <h2>Nothing here yet</h2>
+      <p>
+        Upload your syllabi and every deadline in them will land on this page, sorted and
+        merged across your courses.
+      </p>
+      <a class="btn btn--primary" routerLink="/upload">Upload a syllabus</a>
+    </div>
+  } @else {
+    @if (nextUp().length > 0) {
+      <section class="next" aria-labelledby="next-heading">
+        <h2 id="next-heading" class="next__heading">Coming up</h2>
+        <ul class="next__list">
+          @for (item of nextUp(); track item.assessment_id) {
+            <li class="next__item">
+              <span class="next__course">{{ item.course }}</span>
+              <span class="next__title">{{ item.title }}</span>
+              <si-due-date
+                [dueAt]="item.due_at"
+                [precision]="item.due_precision"
+                [timeInferred]="item.time_inferred"
+              />
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    <si-heatmap />
+
+    @if (courses().length > 1) {
+      <div class="filters" role="group" aria-label="Filter by course">
+        <button
+          class="filter"
+          type="button"
+          [class.filter--on]="courseFilter() === null"
+          [attr.aria-pressed]="courseFilter() === null"
+          (click)="filterBy(null)"
+        >
+          All courses
+        </button>
+        @for (course of courses(); track course) {
+          <button
+            class="filter"
+            type="button"
+            [class.filter--on]="courseFilter() === course"
+            [attr.aria-pressed]="courseFilter() === course"
+            (click)="filterBy(course)"
+          >
+            {{ course }}
+          </button>
+        }
+      </div>
+    }
+
+    @for (month of months(); track month.key) {
+      <section class="month" [attr.aria-labelledby]="'month-' + month.key">
+        <h2 class="month__label" [id]="'month-' + month.key">{{ month.label }}</h2>
+        <ul class="entries">
+          @for (item of month.items; track item.assessment_id) {
+            <li class="entry">
+              <span
+                class="entry__rail"
+                aria-hidden="true"
+                [style.background]="'hsl(' + courseHue(item.course) + ' 28% 55%)'"
+              ></span>
+              <div class="entry__body">
+                <div class="entry__top">
+                  <span class="entry__title">{{ item.title }}</span>
+                  <si-due-date
+                    [dueAt]="item.due_at"
+                    [precision]="item.due_precision"
+                    [timeInferred]="item.time_inferred"
+                  />
+                </div>
+                <div class="entry__meta">
+                  <span class="entry__course">{{ item.course }}</span>
+                  <span aria-hidden="true">&middot;</span>
+                  <span>{{ typeLabel(item.type) }}</span>
+                  @if (item.weight_pct !== null) {
+                    <span aria-hidden="true">&middot;</span>
+                    <span>{{ item.weight_pct }}% of grade</span>
+                  }
+                  @if (item.is_group) {
+                    <span class="chip chip--neutral">Group work</span>
+                  }
+                  @if (item.edited) {
+                    <span class="chip chip--neutral">You changed this</span>
+                  }
+                </div>
+              </div>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    @if (undated().length > 0) {
+      <section class="month" aria-labelledby="undated-heading">
+        <h2 class="month__label" id="undated-heading">No date announced</h2>
+        <p class="month__note">
+          Your syllabus lists these but does not say when. They stay off your calendar until a
+          date is set.
+        </p>
+        <ul class="entries">
+          @for (item of undated(); track item.assessment_id) {
+            <li class="entry entry--quiet">
+              <span class="entry__rail" aria-hidden="true"></span>
+              <div class="entry__body">
+                <span class="entry__title">{{ item.title }}</span>
+                <div class="entry__meta">
+                  <span>{{ item.course }}</span>
+                  <span aria-hidden="true">&middot;</span>
+                  <span>{{ typeLabel(item.type) }}</span>
+                </div>
+              </div>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    @if (feedUrl(); as url) {
+      <aside class="feed card">
+        <div>
+          <h2 class="feed__heading">Put this in your own calendar</h2>
+          <p class="feed__note">
+            Subscribe to this link in Google Calendar, Apple Calendar, or Outlook. It updates
+            when you change something here.
+          </p>
+        </div>
+        <div class="feed__actions">
+          <code class="feed__url">{{ url }}</code>
+          <button class="btn btn--secondary btn--sm" type="button" (click)="copyFeed()">
+            {{ feedCopied() ? 'Copied' : 'Copy link' }}
+          </button>
+        </div>
+      </aside>
+    }
+  }
+</div>

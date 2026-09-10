@@ -1,0 +1,249 @@
+.search {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.search__lede {
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+  max-width: 52ch;
+}
+
+/* ------------------------------------------------------------- controls */
+
+.controls {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.controls__row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+}
+
+.controls__query {
+  flex: 1;
+}
+
+.facets {
+  margin: 0;
+  padding: var(--space-4) 0 0;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.facets__legend {
+  padding: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+}
+
+.facets__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-3);
+}
+
+.toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+/* The whole label is the target, which comfortably clears 44px and means the
+   text is clickable rather than just the box. */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* -------------------------------------------------------------- results */
+
+.results__count {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.result {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.result__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.result__title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.result__name {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+/* Provenance is styled quietly but is never hidden. It is the difference
+   between a number a student can act on and one they cannot. */
+/* Provenance is styled quietly but never hidden. It is the difference between
+   a number a student can act on and one they cannot. */
+.result__provenance {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-md);
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3);
+}
+
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fact dt {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.fact dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+/* ----------------------------------------------------------- unprofiled */
+
+.unprofiled {
+  padding: var(--space-5);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.unprofiled__heading {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+
+.unprofiled__note {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  max-width: 58ch;
+}
+
+.unprofiled__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.unprofiled__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.unprofiled__code {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+  min-width: 6rem;
+}
+
+.unprofiled__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------- misc */
+
+.notice--danger {
+  padding: var(--space-3) var(--space-4);
+  background: var(--danger-subtle);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-md);
+  color: var(--danger);
+}
+
+.empty {
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.empty p {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 40rem) {
+  .search {
+    padding: var(--space-4) var(--space-3) var(--space-7);
+  }
+
+  .controls__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .result__head {
+    flex-direction: column;
+  }
+}

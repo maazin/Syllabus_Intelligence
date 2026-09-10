@@ -1,0 +1,129 @@
+<section class="heatmap" aria-labelledby="heatmap-heading">
+  <header class="heatmap__header">
+    <div>
+      <h2 id="heatmap-heading">Your term at a glance</h2>
+      <!-- Section 11.5: label the heatmap as an estimate. Do not imply
+           precision the model does not have. -->
+      <p class="heatmap__lede">
+        Estimated hours per week, based on what your syllabi list. Treat these as a rough
+        guide rather than a measurement.
+      </p>
+    </div>
+  </header>
+
+  @if (error(); as message) {
+    <div class="notice notice--danger" role="alert">
+      <span class="notice__icon" aria-hidden="true">!</span>
+      <p>{{ message }}</p>
+    </div>
+  } @else if (loading()) {
+    <div class="heatmap__skeleton" role="status">
+      <span class="visually-hidden">Loading your term</span>
+    </div>
+  } @else if (weeks().length === 0) {
+    <div class="empty card">
+      <h3>No courses yet</h3>
+      <p>Upload a syllabus and your term will appear here.</p>
+      <a class="btn btn--primary" routerLink="/upload">Upload a syllabus</a>
+    </div>
+  } @else {
+    @if (busiest(); as peak) {
+      <p class="heatmap__summary">
+        Your heaviest stretch looks like the week of <strong>{{ peak.label }}</strong>, at
+        about {{ peak.effort_hours | number: '1.0-0' }} hours.
+      </p>
+    }
+
+    <!-- Each week is a button so the grid is keyboard navigable and every cell
+         carries its own spoken description. -->
+    <ol class="grid" role="list">
+      @for (week of weeks(); track week.week_start) {
+        <li class="grid__item">
+          <button
+            type="button"
+            class="cell"
+            [class.cell--selected]="week.selected"
+            [attr.data-intensity]="week.intensity"
+            [attr.data-severity]="week.topSeverity"
+            [attr.aria-pressed]="week.selected"
+            [attr.aria-label]="cellDescription(week)"
+            (click)="select(week.week_start)"
+          >
+            <span class="cell__week">Wk {{ week.weekNumber }}</span>
+            <!-- The number is printed, not only encoded as color. -->
+            <span class="cell__hours">{{ week.effort_hours | number: '1.0-0' }}h</span>
+            @if (week.topSeverity) {
+              <!-- A shape marker as well as a color, so severity survives
+                   grayscale and color-blind viewing. -->
+              <span class="cell__marker" aria-hidden="true">
+                {{ week.topSeverity === 'red' ? '&#9679;' : '&#9673;' }}
+              </span>
+            }
+          </button>
+        </li>
+      }
+    </ol>
+
+    <!-- Legend spells out the ramp, because an unlabeled gradient asks the
+         reader to guess at the scale. -->
+    <div class="legend">
+      <span class="legend__label">Lighter week</span>
+      <span class="legend__swatches" aria-hidden="true">
+        @for (step of [0, 1, 2, 3, 4, 5]; track step) {
+          <span class="legend__swatch" [attr.data-intensity]="step"></span>
+        }
+      </span>
+      <span class="legend__label">Heavier week</span>
+    </div>
+
+    @if (selected(); as week) {
+      <aside class="detail card" aria-live="polite">
+        <div class="detail__header">
+          <h3>Week of {{ week.label }}</h3>
+          <span class="chip chip--neutral">
+            about {{ week.effort_hours | number: '1.0-0' }} hours
+          </span>
+        </div>
+
+        @if (week.flags.length === 0) {
+          <p class="detail__note">Nothing unusual lands this week.</p>
+        } @else {
+          <ul class="flags">
+            @for (flag of week.flags; track flag.kind) {
+              <li class="flag" [attr.data-severity]="flag.severity">
+                <span
+                  class="chip"
+                  [class.chip--danger]="flag.severity === 'red'"
+                  [class.chip--warning]="flag.severity === 'yellow'"
+                >
+                  {{ severityLabel(flag.severity) }}
+                </span>
+                <p class="flag__text">{{ flag.explanation }}</p>
+              </li>
+            }
+          </ul>
+        }
+      </aside>
+    } @else if (flaggedWeeks().length > 0) {
+      <aside class="detail card">
+        <h3>Weeks worth planning around</h3>
+        <ul class="flags">
+          @for (week of flaggedWeeks(); track week.week_start) {
+            <li class="flag" [attr.data-severity]="week.topSeverity">
+              <button class="flag__link" type="button" (click)="select(week.week_start)">
+                <span
+                  class="chip"
+                  [class.chip--danger]="week.topSeverity === 'red'"
+                  [class.chip--warning]="week.topSeverity === 'yellow'"
+                >
+                  {{ severityLabel(week.topSeverity!) }}
+                </span>
+                <span class="flag__text">{{ week.flags[0].explanation }}</span>
+              </button>
+            </li>
+          }
+        </ul>
+      </aside>
+    }
+  }
+</section>
