@@ -220,8 +220,14 @@ test.describe('accessibility', () => {
     await stubApi(page, { timeline: [item()] });
     await page.goto('/timeline');
 
-    await page.keyboard.press('Tab');
+    // Wait for the app to have rendered before pressing a key. Tabbing into a
+    // document that is still bootstrapping moves focus nowhere, and the
+    // resulting failure looks like a missing skip link rather than a race.
     const skip = page.getByRole('link', { name: 'Skip to content' });
+    await expect(skip).toBeAttached();
+    await expect(page.getByRole('main')).toBeVisible();
+
+    await page.keyboard.press('Tab');
     await expect(skip).toBeFocused();
   });
 

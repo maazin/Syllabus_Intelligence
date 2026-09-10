@@ -35,6 +35,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      # A managed interpreter, not the runner's system Python. `uv pip install
+      # --system` against /usr fails outright on a PEP 668 externally-managed
+      # interpreter, which is what every Python job here was doing.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       # Installed into the same environment mypy runs in. `uv tool run mypy`
       # builds an isolated environment that cannot see these, so every import of
       # sqlalchemy, pydantic or the shared library resolved to a missing module
@@ -67,6 +73,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      # A managed interpreter, not the runner's system Python. `uv pip install
+      # --system` against /usr fails outright on a PEP 668 externally-managed
+      # interpreter, which is what every Python job here was doing.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - run: uv pip install --system -r services/api/requirements.txt pdfplumber python-docx beautifulsoup4 reportlab pillow pytest anthropic
       - run: |
           cd packages/core && alembic upgrade head
@@ -101,6 +113,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      # A managed interpreter, not the runner's system Python. `uv pip install
+      # --system` against /usr fails outright on a PEP 668 externally-managed
+      # interpreter, which is what every Python job here was doing.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - run: uv pip install --system "dbt-core>=1.8" "dbt-postgres>=1.8" "psycopg[binary]" sqlalchemy alembic pydantic
       - run: cd packages/core && alembic upgrade head
       - run: python scripts/seed_dev_data.py

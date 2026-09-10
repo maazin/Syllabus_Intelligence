@@ -45,8 +45,31 @@ jobs:
   verify:
     uses: ./.github/workflows/ci.yml
 
-  images:
+  # Until `terraform apply` has run, none of the things below exist. Without
+  # this the workflow fails on every push with an authentication error, which
+  # trains everyone to ignore a red Deploy, and a red Deploy is the one signal
+  # that has to stay meaningful.
+  configured:
     needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        run: |
+          if [ -n "$PROJECT" ] && [ -n "$PROVIDER" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deployment is not configured yet. Run terraform apply and set the repository secrets and variables listed in DEPLOY.md, then re-run this workflow."
+          fi
+
+  images:
+    needs: [verify, configured]
+    if: needs.configured.outputs.ready == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -113,7 +136,8 @@ jobs:
           tags: ${{ env.IMAGE_PREFIX }}/airflow:${{ steps.tag.outputs.tag }}
 
   api:
-    needs: images
+    needs: [configured, images]
+    if: needs.configured.outputs.ready == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -167,7 +191,8 @@ jobs:
   # rolling update to perform and a few seconds of queued work is not lost,
   # because Redis persists its append-only file across the restart.
   worker:
-    needs: [images, api]
+    needs: [configured, images, api]
+    if: needs.configured.outputs.ready == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -185,7 +210,8 @@ jobs:
             --zone "${{ vars.GCP_REGION }}-a" --quiet
 
   web:
-    needs: api
+    needs: [configured, api]
+    if: needs.configured.outputs.ready == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

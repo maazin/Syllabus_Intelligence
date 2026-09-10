@@ -118,6 +118,13 @@ export async function stubApi(page: Page, options: StubOptions = {}): Promise<vo
     );
   });
 
+  // The app fetches this before it bootstraps, so an unstubbed round trip to
+  // the dev server sits in front of every assertion in the suite. Stubbing it
+  // also pins the API base the tests are asserting against.
+  await page.route('**/config.json', (route) =>
+    route.fulfill({ json: { apiBase: '/api/v1', environment: 'test' } }),
+  );
+
   await page.route('**/api/v1/terms/current', (route) =>
     route.fulfill({
       json: {
