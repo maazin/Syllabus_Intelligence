@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: app
+    description: >
+      Tables written by the API and the extraction worker (PRD section 12).
+      dbt reads them and never writes to them: the application owns this
+      schema through Alembic, and a migration and a dbt model both claiming
+      the same table is how a pipeline starts corrupting production data.
+    schema: public
+    tables:
+      - name: courses
+        columns:
+          - name: id
+            tests: [unique, not_null]
+      - name: sections
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: course_id
+            tests:
+              - relationships:
+                  to: source('app', 'courses')
+                  field: id
+      - name: instructors
+      - name: terms
+      - name: syllabus_documents
+      - name: assessments
+        description: >
+          One row per extracted graded item. `verified_at` is the human review
+          signal that 14.2 gates publication on.
+      - name: grade_categories
+      - name: section_policies

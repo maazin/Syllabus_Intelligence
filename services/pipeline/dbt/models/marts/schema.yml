@@ -1,0 +1,62 @@
+version: 2
+
+models:
+  - name: course_profiles
+    description: >
+      One row per course + instructor + term (PRD 14.1). Never averaged across
+      instructors: a course taught by two people can be two different courses,
+      and surfacing that difference is the point of the feature.
+    columns:
+      - name: id
+        tests: [unique, not_null]
+      - name: course_id
+        tests:
+          - not_null
+          - relationships:
+              to: source('app', 'courses')
+              field: id
+      - name: instructor_id
+        description: >
+          Never null. A profile attributed to nobody would defeat 14.1, so
+          sections without an instructor are excluded upstream.
+        tests:
+          - not_null
+          - relationships:
+              to: source('app', 'instructors')
+              field: id
+      - name: term_id
+        tests: [not_null]
+      - name: assessment_mix_label
+        tests:
+          - accepted_values:
+              values: ['exam_heavy', 'paper_heavy', 'project_heavy', 'continuous', 'unknown']
+      - name: est_weekly_hours
+        description: >
+          An estimate built on the constants in 11.1, which the PRD itself calls
+          guesses. Never presented as a measurement.
+        tests: [not_null]
+      - name: graded_item_count
+        tests: [not_null]
+      - name: verification_count
+        description: >
+          At least one, because 14.2 will not publish a profile that no human
+          has reviewed.
+        tests: [not_null]
+
+  - name: corpus_coverage
+    description: >
+      Every section with its publication state and, when blocked, the reason.
+      This is the coverage worklist from 14.4 rather than a single percentage.
+    columns:
+      - name: section_id
+        tests: [unique, not_null]
+      - name: blocked_reason
+        tests:
+          - accepted_values:
+              values:
+                ['no_document', 'no_grade_breakdown', 'no_human_review',
+                 'weights_do_not_validate']
+              config:
+                # Null is the published case, which is the desired state rather
+                # than a failure.
+                where: "blocked_reason is not null"

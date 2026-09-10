@@ -1,0 +1,29 @@
+# Connection profile. Kept beside the project rather than in ~/.dbt so a fresh
+# clone runs with no manual setup, and every value reads from the environment so
+# the same profile targets local Postgres and Neon without an edit.
+
+syllabus_corpus:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5533') | int }}"
+      user: "{{ env_var('POSTGRES_USER', 'postgres') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'postgres') }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'syllint') }}"
+      schema: public
+      threads: 4
+
+    prod:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      user: "{{ env_var('POSTGRES_USER') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      dbname: "{{ env_var('POSTGRES_DB') }}"
+      schema: public
+      # Neon suspends after five minutes idle (18.1), so a nightly run pays a
+      # cold start. Fewer threads keeps that from becoming a thundering herd.
+      threads: 2
+      sslmode: require

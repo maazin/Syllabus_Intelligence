@@ -1,0 +1,50 @@
+# dbt project for the Layer 2 corpus (PRD sections 14 and 21).
+#
+# Section 18.1 names dbt as "unambiguously the right tool for `course_profiles`",
+# and it is: the aggregation is a set of relational transformations over rows
+# that already exist, run on a schedule, with no per-row Python logic. Writing
+# it as SQL means the transformation is inspectable and testable by the same
+# tool that runs it, and the publication rules become assertions rather than
+# comments.
+#
+# The gate from 14.2 lives in one model, `int_publishable_sections`, so the rule
+# that a profile needs completed human review and validating weights is
+# expressed once instead of repeated everywhere downstream.
+
+name: 'syllabus_corpus'
+version: '1.0.0'
+config-version: 2
+
+profile: 'syllabus_corpus'
+
+model-paths: ['models']
+macro-paths: ['macros']
+test-paths: ['tests']
+target-path: 'target'
+clean-targets: ['target', 'dbt_packages']
+
+models:
+  syllabus_corpus:
+    staging:
+      # Views: staging only renames and types, so materializing it would
+      # duplicate the source tables for no benefit.
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: view
+      +schema: staging
+    marts:
+      # Tables: the search API reads these on every query, and a view would
+      # re-run the whole aggregation per request.
+      +materialized: table
+      +schema: marts
+
+vars:
+  # Section 9.4's tolerance, reused as 14.2's publication gate. Declared once so
+  # every model that checks it agrees on the number.
+  weight_sum_min: 98
+  weight_sum_max: 102
+  # 11.3: baseline weekly hours are enrolled credits times two.
+  baseline_hours_per_credit: 2
+  # 14.3: the share of weight a family needs before a course is labelled by it.
+  mix_dominance_threshold: 0.40
