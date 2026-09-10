@@ -6,6 +6,12 @@ alembic>=1.13
 psycopg[binary]>=3.1
 pyjwt>=2.8
 boto3>=1.34
+# Google Calendar OAuth and the sync client (section 13). The routers import it
+# lazily inside their handlers, so a missing httpx does not fail startup or the
+# health check: it fails the first student who connects a calendar, in
+# production, with a 500. It was absent from every requirements file and only
+# present locally because another package happened to pull it in.
+httpx>=0.27
 python-multipart>=0.0.9
 email-validator>=2.1
 celery>=5.4

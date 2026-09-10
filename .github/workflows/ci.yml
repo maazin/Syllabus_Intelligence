@@ -107,7 +107,10 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5533/syllint
-      DBT_PROFILES_DIR: services/pipeline/dbt
+      # Absolute. Every dbt step below cds into this directory first, so a
+      # relative path is resolved from inside it and points at
+      # services/pipeline/dbt/services/pipeline/dbt.
+      DBT_PROFILES_DIR: ${{ github.workspace }}/services/pipeline/dbt
       POSTGRES_PORT: "5533"
       POSTGRES_DB: syllint
     steps:
