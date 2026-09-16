@@ -11,34 +11,15 @@ week 0 — and it means later uploaders get instant results.
 
 from __future__ import annotations
 
-import functools
 import logging
-import os
 import uuid
 
-import boto3
-from botocore.config import Config
+from db import objectstore
 from db.models import SyllabusDocument, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
-
-
-@functools.lru_cache(maxsize=1)
-def _s3():
-    return boto3.client(
-        "s3",
-        endpoint_url=os.environ.get("R2_ENDPOINT", "http://localhost:9100"),
-        aws_access_key_id=os.environ.get("R2_ACCESS_KEY_ID", "minioadmin"),
-        aws_secret_access_key=os.environ.get("R2_SECRET_ACCESS_KEY", "minioadmin"),
-        config=Config(signature_version="s3v4"),
-        region_name="auto",
-    )
-
-
-def _bucket() -> str:
-    return os.environ.get("R2_BUCKET", "syllabi")
 
 
 def content_hash(data: bytes) -> str:
@@ -96,12 +77,7 @@ def store_document(
 
     storage_key = f"documents/{sha[:2]}/{sha}"
     try:
-        _s3().put_object(
-            Bucket=_bucket(),
-            Key=storage_key,
-            Body=data,
-            ContentType=guess_mime(filename),
-        )
+        objectstore.put(storage_key, data, guess_mime(filename))
     except Exception as exc:
         raise RuntimeError(f"Could not store the uploaded file: {exc}") from exc
 
@@ -120,9 +96,9 @@ def store_document(
 
 
 def fetch_document(storage_key: str) -> bytes:
-    return _s3().get_object(Bucket=_bucket(), Key=storage_key)["Body"].read()
+    return objectstore.get(storage_key)
 
 
 def delete_document(storage_key: str) -> None:
     """Used by account deletion (15.2), which removes documents outright."""
-    _s3().delete_object(Bucket=_bucket(), Key=storage_key)
+    objectstore.delete(storage_key)

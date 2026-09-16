@@ -1,9 +1,16 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { ConfidenceBucket, TimelineItem } from '../core/models';
+import { ConfidenceBucket, CourseMatch, DocumentState, TimelineItem } from '../core/models';
 import { DueDateComponent } from '../shared/due-date.component';
 
 interface ReviewRow extends TimelineItem {
@@ -49,10 +56,24 @@ export class ReviewComponent {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly documentId = this.route.snapshot.paramMap.get('documentId') ?? '';
   protected readonly rows = signal<ReviewRow[]>([]);
   protected readonly loading = signal(true);
+
+  /**
+   * Where the upload is before there is anything to review. The parse runs
+   * on a worker and takes tens of seconds, and section 6.1 says the course
+   * match is confirmed by the student when the system is not sure. So this
+   * screen has three states before the list: waiting, asking, and failed.
+   */
+  protected readonly parseState = signal<DocumentState>('queued');
+  protected readonly courseMatch = signal<CourseMatch | null>(null);
+  protected readonly chosenSection = signal('');
+  protected readonly parseError = signal<string | null>(null);
+  protected readonly confirming = signal(false);
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
   protected readonly saving = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly editingId = signal<string | null>(null);
@@ -93,11 +114,76 @@ export class ReviewComponent {
   );
 
   constructor() {
-    this.load();
+    this.destroyRef.onDestroy(() => this.stopPolling());
+    if (this.documentId) {
+      this.poll();
+    } else {
+      // No document in the route: review everything outstanding.
+      this.parseState.set('succeeded');
+      this.load();
+    }
+  }
+
+  /** Ask the API where the parse is, and keep asking until it settles. */
+  private poll(): void {
+    this.api.documentStatus(this.documentId).subscribe({
+      next: (status) => {
+        this.parseState.set(status.status);
+        switch (status.status) {
+          case 'succeeded':
+            this.load();
+            return;
+          case 'needs_course':
+            this.courseMatch.set(status.course_match ?? null);
+            this.loading.set(false);
+            return;
+          case 'failed':
+          case 'needs_manual_entry':
+            this.parseError.set(status.error ?? null);
+            this.loading.set(false);
+            return;
+          default:
+            // Two seconds is short enough that "under a minute" feels like a
+            // real promise and long enough not to hammer a scaled-to-zero API.
+            this.pollTimer = setTimeout(() => this.poll(), 2000);
+        }
+      },
+      error: () => {
+        this.error.set('We could not check on this syllabus. Refresh to try again.');
+        this.loading.set(false);
+      },
+    });
+  }
+
+  private stopPolling(): void {
+    if (this.pollTimer !== null) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
+  /** US-1: the student picks the section when the match was not confident. */
+  protected confirmCourse(): void {
+    const sectionId = this.chosenSection();
+    if (!sectionId || this.confirming()) return;
+    this.confirming.set(true);
+    this.api.confirmCourse(this.documentId, sectionId).subscribe({
+      next: () => {
+        this.confirming.set(false);
+        this.courseMatch.set(null);
+        this.parseState.set('queued');
+        this.loading.set(true);
+        this.poll();
+      },
+      error: () => {
+        this.confirming.set(false);
+        this.error.set('We could not save that course. Try again.');
+      },
+    });
   }
 
   private load(): void {
-    this.api.timeline().subscribe({
+    this.api.timeline(this.documentId ? { documentId: this.documentId } : {}).subscribe({
       next: (items) => {
         this.rows.set(items.map((item) => this.toRow(item)));
         this.loading.set(false);

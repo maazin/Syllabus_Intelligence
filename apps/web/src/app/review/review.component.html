@@ -8,7 +8,7 @@
       </p>
     </div>
 
-    @if (!loading()) {
+    @if (!loading() && parseState() === 'succeeded') {
       <!-- Progress counts accepted items, so it reads as almost-done from the
            start. That is accurate: most extractions are already correct. -->
       <div class="progress" role="group" aria-labelledby="progress-label">
@@ -41,10 +41,76 @@
 
   @if (loading()) {
     <div class="loading" role="status">
-      <span class="visually-hidden">Loading your deadlines</span>
+      @if (parseState() === 'queued') {
+        <!-- The worker is on it. Saying what is happening, and roughly how
+             long, is what keeps a student from refreshing into a second
+             upload. -->
+        <p class="loading__note">
+          <span class="loading__pulse" aria-hidden="true"></span>
+          Reading your syllabus. This usually takes under a minute.
+        </p>
+      } @else {
+        <span class="visually-hidden">Loading your deadlines</span>
+      }
       @for (placeholder of [1, 2, 3, 4]; track placeholder) {
         <div class="skeleton"></div>
       }
+    </div>
+  } @else if (parseState() === 'needs_course') {
+    <!-- Section 6.1: match confidence below 0.8 asks the student. The guess
+         is shown so they know what to look for, and a wrong pick here puts a
+         real-looking wrong exam date on their calendar, so the list is the
+         registrar's sections and nothing is preselected. -->
+    <section class="ask card" aria-labelledby="ask-heading">
+      <h2 id="ask-heading">Which course is this?</h2>
+      @if (courseMatch()?.guess; as guess) {
+        <p>
+          Your syllabus looks like <strong>{{ guess }}</strong>, but we could not tell which
+          section. Pick yours so dates land in the right place.
+        </p>
+      } @else {
+        <p>We could not tell which course this syllabus is for. Pick it from the list.</p>
+      }
+
+      <label class="field__label" for="section-choice">Your section</label>
+      <select
+        id="section-choice"
+        class="input"
+        [ngModel]="chosenSection()"
+        (ngModelChange)="chosenSection.set($event)"
+      >
+        <option value="" disabled>Choose a section</option>
+        @for (candidate of courseMatch()?.candidates ?? []; track candidate.section_id) {
+          <option [value]="candidate.section_id">
+            {{ candidate.label }}
+            @if (candidate.instructor) { with {{ candidate.instructor }} }
+            @if (candidate.meeting_pattern) { ({{ candidate.meeting_pattern }}) }
+          </option>
+        }
+      </select>
+
+      <button
+        class="btn btn--primary btn--block"
+        type="button"
+        [disabled]="!chosenSection() || confirming()"
+        (click)="confirmCourse()"
+      >
+        {{ confirming() ? 'Saving' : 'This is my course' }}
+      </button>
+    </section>
+  } @else if (parseState() === 'failed' || parseState() === 'needs_manual_entry') {
+    <!-- Section 9.4: a hard failure routes to manual entry with an apology,
+         never an empty screen. -->
+    <div class="empty card" role="alert">
+      <h2>We could not read this syllabus</h2>
+      @if (parseError(); as detail) {
+        <p class="empty__detail">{{ detail }}</p>
+      }
+      <p>
+        Sorry about that. You can add the graded items by hand, and everything else on your
+        timeline stays as it is.
+      </p>
+      <a class="btn btn--primary" routerLink="/upload">Add items manually</a>
     </div>
   } @else if (total() === 0) {
     <div class="empty card">

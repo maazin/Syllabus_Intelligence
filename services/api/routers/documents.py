@@ -42,10 +42,25 @@ class DocumentAccepted(BaseModel):
 
 class CourseMatch(BaseModel):
     confidence: float
+    #: What the syllabus said it was, e.g. "COP 4530". Shown above the dropdown
+    #: so the student knows what to look for.
+    guess: str | None = None
     candidates: list[dict[str, Any]] = []
 
 
 class DocumentStatus(BaseModel):
+    """Where one document is in the pipeline, and what the student can do about it.
+
+    `status` is one of:
+      queued              nothing has run yet
+      needs_course        extracted; the course could not be matched with
+                          enough confidence (US-1) and `course_match` lists
+                          the choices
+      succeeded           parsed and persisted; the review screen can load
+      needs_manual_entry  section 9.4's hard failure; route to manual entry
+      failed              could not be read at all; `error` says why
+    """
+
     document_id: str
     status: str
     course_match: CourseMatch | None = None
@@ -136,9 +151,30 @@ def get_document_status(
     belongs here once the worker publishes progress events.
     """
     document = _owned_document(db, document_id, user)
-    latest = sorted(document.extraction_runs, key=lambda r: r.created_at)[-1:] or None
-    state = latest[0].status if latest else "queued"
-    return DocumentStatus(document_id=str(document.id), status=state)
+    runs = sorted(document.extraction_runs, key=lambda r: r.created_at)
+    if not runs:
+        return DocumentStatus(document_id=str(document.id), status="queued")
+
+    latest = runs[-1]
+    payload = latest.raw_output or {}
+
+    if latest.status == "needs_course":
+        match = payload.get("_match", {})
+        return DocumentStatus(
+            document_id=str(document.id),
+            status="needs_course",
+            course_match=CourseMatch(
+                confidence=float(match.get("confidence", 0.0)),
+                guess=match.get("guess") or None,
+                candidates=list(match.get("candidates", [])),
+            ),
+        )
+
+    return DocumentStatus(
+        document_id=str(document.id),
+        status=latest.status,
+        error=payload.get("error") if latest.status == "failed" else None,
+    )
 
 
 @router.post("/documents/{document_id}/confirm-course", status_code=status.HTTP_200_OK)
@@ -148,11 +184,19 @@ def confirm_course(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """US-1: match confidence below 0.8 prompts the user to confirm from a dropdown."""
+    """US-1: match confidence below 0.8 prompts the user to confirm from a dropdown.
+
+    Confirming resumes the parse. The worker retained the extraction on the
+    `needs_course` run, so the second pass resolves dates against the chosen
+    section's calendar and meeting pattern without calling the model again.
+    """
     document = _owned_document(db, document_id, user)
+    if db.scalar(select(Section).where(Section.id == section_id)) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Section not found")
     document.section_id = section_id
     ensure_enrollment(db, user, section_id)
     db.commit()
+    enqueue_parse(document.id)
     return {"status": "confirmed"}
 
 

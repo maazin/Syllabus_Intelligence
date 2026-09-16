@@ -162,6 +162,7 @@ class Section(TimestampMixin, Base):
     seats_open: Mapped[int | None] = mapped_column(Integer)
 
     course: Mapped[Course] = relationship(back_populates="sections")
+    instructor: Mapped[Instructor | None] = relationship()
     documents: Mapped[list[SyllabusDocument]] = relationship(back_populates="section")
     assessments: Mapped[list[Assessment]] = relationship(back_populates="section")
     policies: Mapped[SectionPolicies | None] = relationship(back_populates="section", uselist=False)

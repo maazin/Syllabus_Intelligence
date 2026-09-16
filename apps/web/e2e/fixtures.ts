@@ -104,6 +104,9 @@ export interface StubOptions {
   search?: unknown;
   uploadResponse?: unknown;
   failTimeline?: boolean;
+  /** What GET /documents/{id} answers. Defaults to a finished parse. A
+   *  function is called per poll, so a test can script queued -> succeeded. */
+  documentStatus?: unknown | (() => unknown);
 }
 
 /** Signs the browser in and stubs every endpoint the app calls. */
@@ -173,6 +176,23 @@ export async function stubApi(page: Page, options: StubOptions = {}): Promise<vo
         },
       ],
     }),
+  );
+
+  // Registered before the more specific routes below; Playwright matches the
+  // most recently registered handler first, so those still win for their
+  // paths. A single `*` does not cross a slash, so this is exactly the status
+  // read and nothing else.
+  await page.route('**/api/v1/documents/*', (route) => {
+    const status = options.documentStatus;
+    const body =
+      typeof status === 'function'
+        ? (status as () => unknown)()
+        : (status ?? { document_id: 'd-1', status: 'succeeded' });
+    return route.fulfill({ json: body });
+  });
+
+  await page.route('**/api/v1/documents/*/confirm-course*', (route) =>
+    route.fulfill({ json: { status: 'confirmed' } }),
   );
 
   await page.route('**/api/v1/documents/*/review-complete', (route) =>

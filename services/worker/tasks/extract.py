@@ -22,14 +22,21 @@ from schemas.extraction import ExtractionOutput, PassAOutput, PassBOutput
 from schemas.validation import ValidationFlag
 
 try:
+    from services.worker.tasks import replay
     from services.worker.tasks.ingest import IngestedDocument
-    from services.worker.tasks.llm import CHEAP_TIER, STRONG_TIER, LLMResult, call_structured
+    from services.worker.tasks.llm import (
+        CHEAP_TIER,
+        STRONG_TIER,
+        LLMResult,
+        call_structured,
+    )
     from services.worker.tasks.validate import validate_extraction
 except ImportError:  # running from inside services/worker/tasks
     # Unresolvable to a type checker on purpose: these names only exist on
     # sys.path when a script is run from this directory, which is how the
     # pipeline script invokes them. The package-qualified imports above are
     # the ones mypy checks.
+    import replay  # type: ignore[no-redef,import-not-found]
     from ingest import IngestedDocument  # type: ignore[no-redef,import-not-found]
     from llm import (  # type: ignore[no-redef,import-not-found]
         CHEAP_TIER,
@@ -146,6 +153,9 @@ def _extract(document: IngestedDocument, *, allow_escalation: bool) -> Extractio
     text = document.full_text
     runs: list[LLMResult] = []
 
+    if replay.is_enabled():
+        return _replayed(document, text)
+
     def run_tier(model: str, escalated: bool) -> tuple[ExtractionOutput, list[LLMResult]]:
         a = _pass_a(text, model, escalated=escalated)
         b = _pass_b(text, a.parsed, model, escalated=escalated)  # type: ignore[arg-type]
@@ -184,4 +194,30 @@ def _extract(document: IngestedDocument, *, allow_escalation: bool) -> Extractio
         cost_cents=round(sum(r.cost_cents for r in runs), 4),
         latency_ms=sum(r.latency_ms for r in runs),
         runs=runs,
+    )
+
+
+def _replayed(document: IngestedDocument, text: str) -> ExtractionResult:
+    """A recorded extraction in place of the model call. See `replay.py`.
+
+    Validation still runs on the replayed output, so the flags a reviewer sees
+    are the real ones for this document, and the `model` field names the
+    recording so an extraction_runs row never claims a model that was not
+    called.
+    """
+    # ReplayError is left to propagate. It is a permanent outcome for this
+    # document, not a transient one, and `parse_document` records it as such
+    # rather than retrying it the way it retries a rate limit.
+    name, output = replay.replay(text)
+
+    flags = validate_extraction(output, page_count=document.page_count, source_text=text)
+    return ExtractionResult(
+        output=output,
+        flags=flags,
+        prompt_version=CURRENT_PROMPT_VERSION,
+        model=f"replay:{name}",
+        escalated=False,
+        cost_cents=0.0,
+        latency_ms=0,
+        runs=[],
     )

@@ -24,6 +24,7 @@ os.environ.setdefault("R2_ENDPOINT", "http://localhost:9100")
 from db.localtime import local_date  # noqa: E402
 from db.models import (  # noqa: E402
     Assessment,
+    Enrollment,
     ExtractionRun,
     GradeCategory,
     Institution,
@@ -49,9 +50,9 @@ def _ready() -> bool:
     except Exception:
         return False
     try:
-        from services.api.storage import _bucket, _s3
+        from db import objectstore
 
-        _s3().head_bucket(Bucket=_bucket())
+        objectstore.client().head_bucket(Bucket=objectstore.bucket())
     except Exception:
         return False
     return FIXTURE.is_file() and RECORDED.is_file()
@@ -218,9 +219,55 @@ def test_task_lowers_confidence_on_the_weekday_mismatch(uploaded, stub_model) ->
         assert midterm.confidence < 0.6, "a mismatched date must not land in an auto-accept bucket"
 
 
-def test_task_refuses_a_document_with_no_section(uploaded, stub_model) -> None:
-    """US-1: the course match must be confirmed before a parse can be attributed."""
-    from services.worker.tasks.parse_document import ParseFailure, _run
+def test_a_document_with_no_section_matches_its_own_course(uploaded, stub_model) -> None:
+    """US-1: the section comes from the syllabus, not from the upload form.
+
+    The recorded extraction names COP 4530 section 003, which the seed has
+    exactly once, so the match is unambiguous and the parse proceeds. The
+    uploader is enrolled as a side effect, because uploading a syllabus is the
+    statement "I am taking this course" and the timeline joins through
+    enrollments.
+    """
+    from services.worker.tasks.parse_document import _run
+
+    with SessionLocal() as db:
+        document = db.scalar(
+            select(SyllabusDocument).where(SyllabusDocument.id == uploaded["document_id"])
+        )
+        document.section_id = None
+        db.query(Enrollment).filter(Enrollment.user_id == uploaded["user_id"]).delete()
+        db.flush()
+
+        outcome = _run(db, document)
+
+        assert outcome["status"] == "parsed"
+        assert document.section_id == uploaded["section_id"]
+        enrolled = db.scalar(
+            select(Enrollment).where(
+                Enrollment.user_id == uploaded["user_id"],
+                Enrollment.section_id == uploaded["section_id"],
+            )
+        )
+        assert enrolled is not None and enrolled.confirmed is False
+        db.query(Enrollment).filter(Enrollment.user_id == uploaded["user_id"]).delete()
+        db.commit()
+
+
+def test_an_ambiguous_course_asks_and_keeps_the_extraction(
+    uploaded, stub_model, monkeypatch
+) -> None:
+    """Below the 0.8 line nothing is persisted, and the model is not called twice.
+
+    Simulated by having the extraction name a course the seed does not carry.
+    The run retains the extraction and the candidate list; confirming the
+    section and running again resumes from that retained extraction, which
+    the test proves by making a second model call impossible.
+    """
+    from services.worker.tasks import parse_document as task_module
+    from services.worker.tasks.parse_document import _run
+
+    stub_model.course.subject_code = "ZZZ"
+    stub_model.course.catalog_number = "9999"
 
     with SessionLocal() as db:
         document = db.scalar(
@@ -229,9 +276,33 @@ def test_task_refuses_a_document_with_no_section(uploaded, stub_model) -> None:
         document.section_id = None
         db.flush()
 
-        with pytest.raises(ParseFailure, match="no section"):
-            _run(db, document)
-        db.rollback()
+        outcome = _run(db, document)
+        assert outcome["status"] == "needs_course"
+        assert document.section_id is None
+        assert db.scalar(select(Assessment).where(Assessment.document_id == document.id)) is None, (
+            "nothing is attributed to a section the student has not confirmed"
+        )
+
+        retained = sorted(document.extraction_runs, key=lambda r: r.created_at)[-1]
+        assert retained.status == "needs_course"
+        match = retained.raw_output["_match"]
+        assert match["guess"] == "ZZZ 9999"
+        assert match["candidates"], "the student needs something to choose from"
+        assert all("section_id" in c and "label" in c for c in match["candidates"])
+
+        # The student confirms. The second pass must not need the model.
+        def no_second_call(document):
+            raise AssertionError("model called again after course confirmation")
+
+        monkeypatch.setattr(task_module, "extract_document", no_second_call)
+        document.section_id = uploaded["section_id"]
+        db.flush()
+
+        outcome = _run(db, document)
+        assert outcome["status"] == "parsed"
+        assert outcome["assessments"] == 9
+        assert db.scalar(select(Assessment).where(Assessment.document_id == document.id))
+        db.commit()
 
 
 def test_late_evening_deadlines_keep_their_local_day(uploaded, stub_model) -> None:

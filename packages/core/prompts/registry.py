@@ -62,6 +62,17 @@ def _mlflow() -> Any:
     here would be a fiction that has to be maintained. Callers are guarded by
     `is_enabled()`.
     """
+    # Bounded before the import, because the client reads these at import.
+    # The defaults are seven retries with exponential backoff and a two-minute
+    # timeout per request: an unreachable tracking server stalls every
+    # extraction for about four minutes before the "degrade to no-op" path in
+    # this module ever runs. During syllabus week that is an outage with a
+    # tracing sidecar as its cause, which is exactly what the docstring above
+    # promises cannot happen. One retry, five seconds.
+    os.environ.setdefault("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "1")
+    os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", "5")
+    os.environ.setdefault("MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR", "1")
+
     import mlflow
 
     uri = tracking_uri()

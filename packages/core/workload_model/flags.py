@@ -145,8 +145,20 @@ def _rolling_load_flags(
         if current is None or total > current[0]:
             worst_by_week[week_start] = (total, window_start)
 
+    # Adjacent calendar weeks can each pick a window that is the same crunch
+    # shifted by a day: Oct 8 to 14 and Oct 9 to 15 are one busy stretch, and
+    # a student shown both reads it as two. Keep the heavier of any two
+    # windows that share four or more days.
+    accepted: list[tuple[date, float, date]] = []
+    for week_start, (total, window_start) in sorted(
+        worst_by_week.items(), key=lambda item: item[1][0], reverse=True
+    ):
+        if any(_overlap_days(window_start, other_start) >= 4 for _, _, other_start in accepted):
+            continue
+        accepted.append((week_start, total, window_start))
+
     out: list[Flag] = []
-    for week_start, (total, window_start) in sorted(worst_by_week.items()):
+    for week_start, total, window_start in sorted(accepted):
         ratio = total / baseline
         if ratio < 1.4:
             continue
@@ -157,7 +169,7 @@ def _rolling_load_flags(
         # "about 14 hours" on a cell labelled "8.9h" reads as a contradiction
         # unless the span it refers to is stated.
         window_end = window_start + timedelta(days=6)
-        span = f"{_fmt_week(window_start)}–{_fmt_week(window_end)}"
+        span = f"{_fmt_week(window_start)} to {_fmt_week(window_end)}"
 
         severe = ratio >= 1.8
         out.append(
@@ -307,3 +319,8 @@ def _grade_concentration_flags(items: list[ScheduledItem]) -> list[Flag]:
             )
         )
     return out
+
+
+def _overlap_days(a_start: date, b_start: date) -> int:
+    """Days two 7-day windows have in common."""
+    return max(0, 7 - abs((a_start - b_start).days))

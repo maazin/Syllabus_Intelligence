@@ -35,9 +35,33 @@ export interface UploadResult {
   error: string | null;
 }
 
+/** One registrar section the student can pick when the match was unsure. */
+export interface CourseCandidate {
+  section_id: string;
+  label: string;
+  title: string;
+  instructor: string | null;
+  meeting_pattern: string | null;
+}
+
+export interface CourseMatch {
+  confidence: number;
+  /** What the syllabus said it was, e.g. "COP 4530". */
+  guess: string | null;
+  candidates: CourseCandidate[];
+}
+
+export type DocumentState =
+  | 'queued'
+  | 'needs_course'
+  | 'succeeded'
+  | 'needs_manual_entry'
+  | 'failed';
+
 export interface DocumentStatus {
   document_id: string;
-  status: string;
+  status: DocumentState;
+  course_match?: CourseMatch | null;
   error?: string | null;
 }
 

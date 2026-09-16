@@ -78,6 +78,7 @@ def purge_user(db, user_id: uuid.UUID) -> None:
         CalendarConnection,
         CalendarEventMap,
         CorrectionLog,
+        ExtractionRun,
         GradeCategory,
         SyllabusDocument,
         UserOverride,
@@ -105,6 +106,12 @@ def purge_user(db, user_id: uuid.UUID) -> None:
             synchronize_session=False
         )
         db.query(GradeCategory).filter(GradeCategory.document_id.in_(document_ids)).delete(
+            synchronize_session=False
+        )
+        # With the compose worker running, an upload in a test gets parsed for
+        # real before teardown, and a parse writes extraction_runs. Cleaning
+        # them here is what lets the suite run beside a live stack.
+        db.query(ExtractionRun).filter(ExtractionRun.document_id.in_(document_ids)).delete(
             synchronize_session=False
         )
         db.query(SyllabusDocument).filter(SyllabusDocument.id.in_(document_ids)).delete(
@@ -427,3 +434,72 @@ def test_enrolling_twice_for_the_same_section_is_a_no_op(client, auth, db, user)
         ).all()
     )
     assert count == 1
+
+
+def test_a_student_sees_one_copy_of_each_item_when_a_section_has_several_uploads(
+    client, auth, db, user
+) -> None:
+    """Assessments hang off documents, and a section accumulates several.
+
+    Joining assessments straight to the section showed every enrolled student
+    every upload's items, so three uploads in a section tripled the timeline
+    and the heatmap. The student sees their own upload, otherwise the
+    section's canonical one, otherwise the newest.
+    """
+    import uuid as _uuid
+
+    from db.models import Assessment, Enrollment, Section, SyllabusDocument, User
+    from sqlalchemy import select
+
+    me = user
+    section = db.scalar(select(Section).limit(1))
+    assert section is not None
+
+    def upload(owner: User, title: str) -> SyllabusDocument:
+        document = SyllabusDocument(
+            uploader_user_id=owner.id,
+            section_id=section.id,
+            storage_key=f"documents/xx/{_uuid.uuid4().hex}",
+            sha256=_uuid.uuid4().hex,
+            mime="application/pdf",
+            visibility="private",
+        )
+        db.add(document)
+        db.flush()
+        db.add(
+            Assessment(
+                document_id=document.id,
+                section_id=section.id,
+                title=title,
+                type="homework",
+                weight_pct=5.0,
+                due_precision="tbd",
+                confidence=0.9,
+                source_span=f"{title} sentence",
+            )
+        )
+        return document
+
+    classmate = User(
+        email=f"mate-{_uuid.uuid4().hex[:6]}@test.edu", institution_id=me.institution_id
+    )
+    db.add(classmate)
+    db.flush()
+    if not db.scalar(
+        select(Enrollment).where(Enrollment.user_id == me.id, Enrollment.section_id == section.id)
+    ):
+        db.add(Enrollment(user_id=me.id, section_id=section.id, term_id=section.term_id))
+
+    theirs = upload(classmate, "Classmate's copy")
+    mine = upload(me, "My copy")
+    db.commit()
+
+    titles = [i["title"] for i in client.get("/api/v1/timeline", headers=auth).json()]
+    assert "My copy" in titles
+    assert "Classmate's copy" not in titles, "a classmate's upload is not this student's timeline"
+
+    for document in (mine, theirs):
+        db.query(Assessment).filter(Assessment.document_id == document.id).delete()
+        db.query(SyllabusDocument).filter(SyllabusDocument.id == document.id).delete()
+    db.query(User).filter(User.id == classmate.id).delete()
+    db.commit()

@@ -32,7 +32,12 @@ app.conf.update(
     task_track_started=True,
 )
 
-app.autodiscover_tasks(["services.worker.tasks"])
+# Named explicitly rather than autodiscovered. `autodiscover_tasks(["pkg"])`
+# looks for a module called `pkg.tasks`, so pointed at `services.worker.tasks`
+# it searched for `services.worker.tasks.tasks`, found nothing, and the worker
+# started cleanly with only `health.ping` registered. Every upload was then
+# received and dropped with a KeyError, which the API never sees.
+app.conf.imports = ("services.worker.tasks.parse_document",)
 
 
 @app.task(name="health.ping")

@@ -137,3 +137,24 @@ test.describe('sign in', () => {
     await expect(page).toHaveURL(/\/signin/);
   });
 });
+
+test.describe('the emailed link', () => {
+  test('the path the API emails signs the student in', async ({ page }) => {
+    // services/api/routers/auth.py builds `${APP_BASE_URL}/auth/verify?token=`.
+    // This is the one place that path and the router are compared.
+    // Catch-all first: Playwright tries the most recently registered route
+    // first, so the specific handler below has to be registered after it.
+    await page.route('**/api/v1/**', (route) => route.fulfill({ json: [] }));
+    await page.route('**/api/v1/auth/verify', (route) =>
+      route.fulfill({
+        json: {
+          access_token: 'token-123',
+          user: { id: 'u-1', email: 'student@test.edu', verified: true },
+        },
+      }),
+    );
+    await page.goto('/auth/verify?token=abc');
+    await expect(page).toHaveURL(/\/timeline/);
+    expect(await page.evaluate(() => localStorage.getItem('si.token'))).toBe('token-123');
+  });
+});

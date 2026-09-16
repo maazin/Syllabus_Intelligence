@@ -188,3 +188,101 @@ test.describe('review', () => {
     await expect(page.getByRole('alert')).toContainText('could not load');
   });
 });
+
+/**
+ * Before there is anything to review (PRD sections 6.1 and 9.4).
+ *
+ * The parse runs on a worker, and the course match asks the student when it
+ * is not sure. These are the states a real upload passes through, and they
+ * only exist against a real API, which is why the stubbed suite has to script
+ * them explicitly.
+ */
+test.describe('review, before the list', () => {
+  test('waits for the worker and then loads', async ({ page }) => {
+    let polls = 0;
+    await stubApi(page, {
+      timeline: [item()],
+      documentStatus: () => ({
+        document_id: 'd-1',
+        status: polls++ < 2 ? 'queued' : 'succeeded',
+      }),
+    });
+    await page.goto('/review/d-1');
+
+    await expect(page.getByText('Reading your syllabus', { exact: false })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Ready to go' })).toBeVisible({
+      timeout: 10_000,
+    });
+    expect(polls).toBeGreaterThanOrEqual(3);
+  });
+
+  test('asks which course when the match was not confident', async ({ page }) => {
+    let confirmed = false;
+    await stubApi(page, {
+      timeline: [item()],
+      documentStatus: () =>
+        confirmed
+          ? { document_id: 'd-1', status: 'succeeded' }
+          : {
+              document_id: 'd-1',
+              status: 'needs_course',
+              course_match: {
+                confidence: 0.5,
+                guess: 'COP 4530',
+                candidates: [
+                  {
+                    section_id: 's-1',
+                    label: 'COP 4530 section 001',
+                    title: 'Data Structures',
+                    instructor: 'Dr. Alice Nakamura',
+                    meeting_pattern: 'MWF 10:00-10:50',
+                  },
+                  {
+                    section_id: 's-2',
+                    label: 'COP 4530 section 002',
+                    title: 'Data Structures',
+                    instructor: 'Dr. Ben Osei',
+                    meeting_pattern: 'TR 14:00-15:15',
+                  },
+                ],
+              },
+            },
+    });
+    await page.route('**/api/v1/documents/d-1/confirm-course*', (route) => {
+      confirmed = true;
+      return route.fulfill({ json: { status: 'confirmed' } });
+    });
+    await page.goto('/review/d-1');
+
+    await expect(page.getByRole('heading', { name: 'Which course is this?' })).toBeVisible();
+    await expect(page.getByText('COP 4530', { exact: false }).first()).toBeVisible();
+
+    // Nothing is preselected: a wrong section puts a wrong exam date on a
+    // calendar, so the choice has to be deliberate.
+    const confirm = page.getByRole('button', { name: 'This is my course' });
+    await expect(confirm).toBeDisabled();
+
+    await page.getByLabel('Your section').selectOption('s-2');
+    await expect(confirm).toBeEnabled();
+    await confirm.click();
+
+    await expect(page.getByRole('heading', { name: 'Ready to go' })).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
+  test('a document that could not be read says so and offers manual entry', async ({ page }) => {
+    await stubApi(page, {
+      documentStatus: {
+        document_id: 'd-1',
+        status: 'failed',
+        error: 'This file does not contain readable text.',
+      },
+    });
+    await page.goto('/review/d-1');
+
+    await expect(page.getByRole('heading', { name: 'We could not read this syllabus' })).toBeVisible();
+    await expect(page.getByText('This file does not contain readable text.')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Add items manually' })).toBeVisible();
+  });
+});

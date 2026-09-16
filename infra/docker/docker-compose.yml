@@ -190,9 +190,17 @@ services:
       OCR_MODE: docling
       MLFLOW_TRACKING_URI: http://mlflow:5000
       ENVIRONMENT: local
+      # Replays recorded extractions instead of calling the model, so a fresh
+      # clone with no API key still runs the whole upload -> review -> timeline
+      # loop. Set LLM_MODE=live in .env (and LLM_API_KEY) to call the model.
+      # Replay refuses to run when ENVIRONMENT=production.
+      LLM_MODE: ${LLM_MODE:-replay}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_REPLAY_DIR: /app/tests/fixtures/recorded_extractions
     volumes:
       - ../../services/worker:/app/services/worker
       - ../../packages/core:/app/packages/core
+      - ../../tests/fixtures/recorded_extractions:/app/tests/fixtures/recorded_extractions:ro
     command: celery -A services.worker.celery_app worker --loglevel=info
 
 volumes:

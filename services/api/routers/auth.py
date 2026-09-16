@@ -57,6 +57,9 @@ def _send_magic_link(email: str, token: str) -> None:
     sending domain before launch, and tested against a real .edu inbox.
     """
     base_url = os.environ.get("APP_BASE_URL", "http://localhost:4200")
+    # The web app serves this path (apps/web/src/app/app.routes.ts). The two
+    # sides disagreed on it once, each with a passing test suite, and the
+    # result was a link that landed on the sign-in form with no message.
     link = f"{base_url}/auth/verify?token={token}"
 
     if os.environ.get("EMAIL_PROVIDER", "smtp") != "smtp":

@@ -8,6 +8,7 @@ explicit inclusive/exclusive operators — this file pins that behavior down.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 import pytest
@@ -323,7 +324,9 @@ def test_rolling_load_flags_name_their_own_seven_day_window() -> None:
     rolling = [f for fl in flags.values() for f in fl if f.kind in ("crunch_week", "severe_crunch")]
     assert rolling
     for flag in rolling:
-        assert "–" in flag.explanation, "the 7-day span is not stated"
+        assert re.search(r"[A-Z][a-z]{2} \d+ to [A-Z][a-z]{2} \d+", flag.explanation), (
+            "the 7-day span is not stated"
+        )
         assert "in 7 days" in flag.explanation
 
 
@@ -365,3 +368,48 @@ def test_rolling_flag_is_attributed_to_the_week_it_mostly_covers() -> None:
     # The load sits in the week of Mon Nov 16; the flag must land there.
     weeks = {week for week, _ in rolling}
     assert date(2026, 11, 16) in weeks
+
+
+def test_one_busy_stretch_produces_one_crunch_flag() -> None:
+    """Adjacent calendar weeks must not each report the same window shifted a day.
+
+    A single heavy cluster straddling a week boundary used to fire twice, as
+    "Oct 8 to Oct 14" and "Oct 9 to Oct 15", and a student reads that as two
+    crunches. Overlapping windows collapse to the heavier one.
+    """
+    from datetime import date, timedelta
+
+    from workload_model.flags import compute_flags
+    from workload_model.heatmap import ScheduledItem, build_heatmap
+
+    term_start, term_end = date(2026, 8, 24), date(2026, 12, 11)
+    items = []
+    # A quiet baseline: one small item a week.
+    for week in range(16):
+        due = term_start + timedelta(weeks=week, days=4)
+        items.append(
+            ScheduledItem(
+                assessment_id=f"ps{week}",
+                title=f"PS {week}",
+                course_label="C1",
+                assessment_type="homework",
+                due_on=due,
+                weight_pct=2.0,
+            )
+        )
+    # One heavy cluster across a Sunday/Monday boundary.
+    for i, due in enumerate((date(2026, 10, 10), date(2026, 10, 12), date(2026, 10, 13))):
+        items.append(
+            ScheduledItem(
+                assessment_id=f"big{i}",
+                title=f"Big {i}",
+                course_label="C1",
+                assessment_type="midterm",
+                due_on=due,
+                weight_pct=20.0,
+            )
+        )
+    cells = build_heatmap(items, term_start, term_end, 15)
+    flags = compute_flags(items, cells, term_start, term_end, 15)
+    crunch = [f for f in sum(flags.values(), []) if f.kind in ("crunch_week", "severe_crunch")]
+    assert len(crunch) == 1, [f.explanation for f in crunch]

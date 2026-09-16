@@ -77,11 +77,14 @@ export class ApiService {
 
   // --- plan ---------------------------------------------------------------
 
-  timeline(options: { from?: string; to?: string; courseId?: string } = {}): Observable<TimelineItem[]> {
+  timeline(
+    options: { from?: string; to?: string; courseId?: string; documentId?: string } = {},
+  ): Observable<TimelineItem[]> {
     let params = new HttpParams();
     if (options.from) params = params.set('from', options.from);
     if (options.to) params = params.set('to', options.to);
     if (options.courseId) params = params.set('course_id', options.courseId);
+    if (options.documentId) params = params.set('document_id', options.documentId);
     return this.http.get<TimelineItem[]>(`${this.base}/timeline`, { params });
   }
 

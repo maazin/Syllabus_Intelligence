@@ -17,6 +17,7 @@ from db.models import (
     Enrollment,
     Institution,
     Section,
+    SyllabusDocument,
     Term,
     User,
     UserOverride,
@@ -66,8 +67,54 @@ def _institution_timezone(db: Session, user: User) -> str:
     return institution.timezone if institution else DEFAULT_TIMEZONE
 
 
+def _source_documents(db: Session, user: User, term_id: uuid.UUID | None) -> set[uuid.UUID]:
+    """One parsed document per enrolled section: the one this student sees.
+
+    Assessments hang off documents, and a section accumulates several. Two
+    students upload slightly different copies; a third uploads next year's
+    draft; the corpus job picks a canonical one. Joining assessments to the
+    section directly showed every student every copy, so a section with three
+    uploads listed each problem set three times and tripled the heatmap.
+
+    The rule: the student's own most recent upload for the section, otherwise
+    the section's canonical document, otherwise the newest one anyone
+    uploaded. Their own first because it is the syllabus they were handed,
+    and section 15.1 means they should never be looking at a classmate's
+    file by default when they have their own.
+    """
+    enrolled = select(Enrollment.section_id).where(Enrollment.user_id == user.id)
+    if term_id is not None:
+        enrolled = enrolled.where(Enrollment.term_id == term_id)
+    section_ids = set(db.scalars(enrolled).all())
+    if not section_ids:
+        return set()
+
+    documents = db.scalars(
+        select(SyllabusDocument)
+        .where(SyllabusDocument.section_id.in_(section_ids))
+        .order_by(SyllabusDocument.created_at.desc())
+    ).all()
+
+    chosen: dict[uuid.UUID, SyllabusDocument] = {}
+    for document in documents:
+        assert document.section_id is not None
+        current = chosen.get(document.section_id)
+        if current is None:
+            chosen[document.section_id] = document
+            continue
+        # Ordered newest first, so within each tier the first seen wins.
+        rank = (document.uploader_user_id == user.id, document.canonical_for_section)
+        current_rank = (current.uploader_user_id == user.id, current.canonical_for_section)
+        if rank > current_rank:
+            chosen[document.section_id] = document
+    return {d.id for d in chosen.values()}
+
+
 def _enrolled_rows(db: Session, user: User, term_id: uuid.UUID | None):
     """Every assessment across the user's enrollments, with overrides applied."""
+    sources = _source_documents(db, user, term_id)
+    if not sources:
+        return []
     query = (
         select(Assessment, Course, Section, UserOverride)
         .join(Section, Assessment.section_id == Section.id)
@@ -80,6 +127,7 @@ def _enrolled_rows(db: Session, user: User, term_id: uuid.UUID | None):
             UserOverride,
             (UserOverride.assessment_id == Assessment.id) & (UserOverride.user_id == user.id),
         )
+        .where(Assessment.document_id.in_(sources))
     )
     if term_id is not None:
         query = query.where(Section.term_id == term_id)
@@ -92,6 +140,10 @@ def timeline(
     to: date | None = Query(default=None),
     course_id: uuid.UUID | None = Query(default=None),
     term_id: uuid.UUID | None = Query(default=None),
+    # The review screen reviews one upload. Without this a student's second
+    # syllabus would open a review that also lists the first one's items,
+    # already accepted, padding the count they are asked to confirm.
+    document_id: uuid.UUID | None = Query(default=None),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> list[TimelineItem]:
@@ -100,6 +152,8 @@ def timeline(
     out: list[TimelineItem] = []
     for assessment, course, _section, override in _enrolled_rows(db, user, term_id):
         if course_id is not None and course.id != course_id:
+            continue
+        if document_id is not None and assessment.document_id != document_id:
             continue
         if override is not None and override.dismissed:
             continue

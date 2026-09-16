@@ -9,6 +9,15 @@ export const routes: Routes = [
     title: 'Sign in',
   },
   {
+    // The path the emailed link uses. Same screen: it reads `?token=` and
+    // verifies. Kept as its own route rather than a redirect so the token is
+    // never dropped in a hop, and so an old link in someone's inbox still
+    // works if the canonical path changes again.
+    path: 'auth/verify',
+    loadComponent: () => import('./signin/signin.component').then((m) => m.SigninComponent),
+    title: 'Signing you in',
+  },
+  {
     path: 'timeline',
     canActivate: [authGuard],
     loadComponent: () => import('./timeline/timeline.component').then((m) => m.TimelineComponent),
