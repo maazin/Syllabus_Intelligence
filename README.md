@@ -325,6 +325,20 @@ pytest
 
 The API tests need Postgres running and skip cleanly without it.
 
+The one that matters most runs against the real stack. The Python suite stubs
+the queue and the browser suite stubs the API, and every MVP-blocking bug so
+far lived in the gap between them: a worker with no task registered, a review
+screen that never polled, an emailed link the router did not serve. This drives
+sign-in through heatmap over HTTP, with the model replaced by a recorded
+extraction:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml up -d
+SMOKE_API_URL=http://localhost:8100 pytest tests/smoke -q
+```
+
+It runs in CI on every push.
+
 Browser tests run against a stubbed API, so they need no database, worker, or
 object store:
 
@@ -366,20 +380,18 @@ hand-labeled *real* syllabi before that number means anything — the fixtures i
 2. **Collect the golden set.** The eval gate is scaffolding until it exists.
 3. **Replace the seeded calendar with real registrar data.** The Fall 2026
    fixture is invented. §9.1 is right that this is a hard dependency.
-4. **Run one real extraction.** The two-pass call is wired and cascades
+4. **Run one real extraction.** Set `LLM_MODE=live` and `LLM_API_KEY` in
+   `.env`; the compose worker defaults to `replay`, which serves recorded
+   extractions for the bundled fixtures so the whole loop runs with no key. The two-pass call is wired and cascades
    sonnet → opus per §25.3, but has never executed against the live API — no
    key was available while building. Everything downstream of it is verified.
-5. **Add a smoke test against the real stack.** The browser suite stubs the
-   API deliberately, which means a contract drift between client and server
-   would pass both suites. One end-to-end run against a live API and worker
-   would close that gap.
-6. **Exercise Google Calendar against real Google.** The OAuth flow, event
+5. **Exercise Google Calendar against real Google.** The OAuth flow, event
    diffing, and deletion handling are built and tested against a fake client,
-   but no `GOOGLE_CALENDAR_CLIENT_ID` existed here. Also replace the placeholder
-   `encrypt_token` in `google_calendar.py` with real KMS-backed encryption
-   before storing a production refresh token.
-7. **Start Google Calendar OAuth verification early** — §19 notes it takes weeks.
-8. **Talk to the provost's office** before launch, not after (§15.3).
+   but no `GOOGLE_CALENDAR_CLIENT_ID` existed here. Refresh tokens are sealed
+   at rest with a key Terraform generates into Secret Manager
+   (`services/api/token_vault.py`).
+6. **Start Google Calendar OAuth verification early** — §19 notes it takes weeks.
+7. **Talk to the provost's office** before launch, not after (§15.3).
 
 ---
 

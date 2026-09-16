@@ -210,12 +210,10 @@ Listed because a runbook that hides them is worse than no runbook.
 - **The live model call has never run.** No API key was available while this was
   built, so extraction is exercised against a stubbed client. The first real
   upload is the first real test of the two-pass prompt.
-- **`encrypt_token` is a placeholder.** Google Calendar refresh tokens need a
-  KMS key before real calendar sync ships. Section 13.
 - **The golden set is empty.** Section 16 asks for 100 syllabi with known
   answers, and the hallucination ceiling of 0.5% is unmeasured until they exist.
-- **The browser suite stubs the API.** Contract drift between the Angular models
-  and the FastAPI response shapes would pass both suites. A smoke test against
-  the real stack is the missing check.
+- **The browser suite stubs the API.** `tests/smoke` closes most of that gap
+  by driving the loop over HTTP against the compose stack in CI; the Angular
+  templates themselves are still only exercised against stubs.
 - **Airflow runs `standalone`.** Fine for one box behind a firewall, not a
   production Airflow deployment.
