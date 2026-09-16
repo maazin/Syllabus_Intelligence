@@ -222,9 +222,58 @@ jobs:
           path: apps/web/test-results/
           retention-days: 7
 
+  # The one job that runs the pieces together. The Python suite stubs the
+  # queue and the browser suite stubs the API, and each is right to; the gap
+  # they leave between them is where every MVP-blocking bug so far has lived.
+  # This brings up the compose stack, with the model replaced by a recorded
+  # extraction, and drives sign-in through heatmap over HTTP.
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5533/syllint
+      JWT_SECRET: local-dev-secret-not-for-production
+      INSTITUTION_EMAIL_DOMAIN: test.edu
+      ENVIRONMENT: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Start the stack
+        run: |
+          docker compose -f infra/docker/docker-compose.yml up -d --build \
+            postgres redis minio minio-init mailhog api worker
+
+      - run: uv pip install --system -r services/api/requirements.txt pdfplumber python-docx beautifulsoup4 reportlab pillow pytest httpx
+      - run: cd packages/core && alembic upgrade head
+      - run: python scripts/generate_fixture_syllabi.py
+      - run: python scripts/seed_dev_data.py
+
+      - name: Wait for the API
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -sf http://localhost:8100/health >/dev/null; then exit 0; fi
+            sleep 3
+          done
+          echo "API never became healthy"
+          docker compose -f infra/docker/docker-compose.yml logs api
+          exit 1
+
+      - name: Drive the loop
+        env:
+          SMOKE_API_URL: http://localhost:8100
+          SMOKE_MAILHOG_URL: http://localhost:8125
+        run: pytest tests/smoke -q -p no:cacheprovider
+
+      - name: Stack logs
+        if: failure()
+        run: docker compose -f infra/docker/docker-compose.yml logs --tail 200 api worker
+
   build:
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, dbt, terraform, airflow, web]
+    needs: [lint, typecheck, test, dbt, terraform, airflow, web, smoke]
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f services/api/Dockerfile -t syllint-api .
