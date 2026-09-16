@@ -12,6 +12,8 @@ boto3>=1.34
 # production, with a 500. It was absent from every requirements file and only
 # present locally because another package happened to pull it in.
 httpx>=0.27
+# Refresh tokens are encrypted at rest (services/api/token_vault.py).
+cryptography>=42
 python-multipart>=0.0.9
 email-validator>=2.1
 celery>=5.4

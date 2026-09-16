@@ -27,6 +27,10 @@ locals {
     # authentication, not a degraded feature.
     smtp-password = var.smtp_password
 
+    # Calendar refresh tokens are sealed with this before they touch the
+    # database (services/api/token_vault.py). Generated, never typed.
+    token-encryption-key = random_bytes.token_key.base64
+
     google-calendar-client-secret = var.google_calendar_client_secret
   }
 }
@@ -36,6 +40,12 @@ locals {
 resource "random_password" "jwt" {
   length  = 64
   special = true
+}
+
+# 32 bytes, which is what Fernet requires. The vault accepts standard base64
+# and translates it, so no url-safe massaging is needed here.
+resource "random_bytes" "token_key" {
+  length = 32
 }
 
 resource "cloudflare_api_token" "r2" {

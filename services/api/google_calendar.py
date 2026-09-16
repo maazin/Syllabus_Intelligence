@@ -32,6 +32,8 @@ from datetime import UTC, date, datetime, timedelta
 import httpx
 from db.models import CalendarConnection
 
+from services.api import token_vault
+
 logger = logging.getLogger(__name__)
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -109,18 +111,15 @@ def _client_secret() -> str:
 
 
 def encrypt_token(token: str) -> str:
-    """Store a refresh token.
-
-    Local dev keeps this reversible and obvious rather than pretending to be
-    secure. Production must use a real KMS or `cryptography.fernet` with a key
-    from Secret Manager — a refresh token is a long-lived credential to a
-    student's calendar, and losing the database should not mean losing those.
-    """
-    return token
+    """Seal a refresh token for storage. See `token_vault` for the why."""
+    return token_vault.seal(token)
 
 
 def _decrypt(token: str) -> str:
-    return token
+    try:
+        return token_vault.open_sealed(token)
+    except token_vault.TokenVaultError as exc:
+        raise GoogleCalendarError(str(exc)) from exc
 
 
 class GoogleCalendarClient:

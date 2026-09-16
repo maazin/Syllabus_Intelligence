@@ -34,6 +34,7 @@ institution_email_domain = "example.edu"
 email_from    = "no-reply@syllabusintelligence.app"
 smtp_host     = "smtp-relay.brevo.com"
 smtp_port     = 587
+smtp_user     = "you@example.com"
 smtp_password = "..."
 
 # Filled in by the deploy workflow on every run. The values here only matter

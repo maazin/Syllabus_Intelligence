@@ -118,6 +118,11 @@ variable "smtp_port" {
   default = 587
 }
 
+variable "smtp_user" {
+  description = "Relay login. Brevo uses the account email; SES uses a generated SMTP username."
+  type        = string
+}
+
 variable "institution_email_domain" {
   description = "Signup is restricted to this domain (section 15.2)."
   type        = string

@@ -77,6 +77,7 @@ resource "google_cloud_run_v2_service" "api" {
           EMAIL_FROM     = var.email_from
           SMTP_HOST      = var.smtp_host
           SMTP_PORT      = tostring(var.smtp_port)
+          SMTP_USER      = var.smtp_user
 
           LLM_MODEL_SYNC   = var.llm_model_sync
           LLM_MODEL_STRONG = var.llm_model_strong

@@ -75,10 +75,21 @@ def _send_magic_link(email: str, token: str) -> None:
 
     host = os.environ.get("SMTP_HOST", "localhost")
     port = int(os.environ.get("SMTP_PORT", "1125"))
+    user = os.environ.get("SMTP_USER")
+    password = os.environ.get("SMTP_PASSWORD")
     try:
         with smtplib.SMTP(host, port, timeout=10) as smtp:
+            # MailHog locally takes anything on a plain socket. Every real relay
+            # (Brevo, SES, Postmark) requires STARTTLS and a login on 587, and a
+            # relay that is handed an unauthenticated message either rejects it
+            # or, worse, accepts it into a spam-scored queue. Credentials being
+            # present is the signal that this is a real relay.
+            if password:
+                smtp.starttls()
+                smtp.ehlo()
+                smtp.login(user or message["From"], password)
             smtp.send_message(message)
-    except OSError:
+    except (OSError, smtplib.SMTPException):
         logger.exception("Could not send magic link to %s", email)
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Could not send the sign-in email"
