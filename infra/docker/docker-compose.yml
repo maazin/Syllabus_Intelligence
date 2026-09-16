@@ -41,8 +41,10 @@ services:
 
   # S3-compatible local stand-in for Cloudflare R2. Same API, so no code
   # branches on environment (18.1).
+  # quay.io, not Docker Hub: MinIO stopped publishing there and the Hub
+  # repository now answers "pull access denied".
   minio:
-    image: minio/minio
+    image: quay.io/minio/minio
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -60,7 +62,7 @@ services:
 
   # Creates the bucket on first boot so a fresh clone needs no manual step.
   minio-init:
-    image: minio/mc
+    image: quay.io/minio/mc
     depends_on:
       minio:
         condition: service_healthy

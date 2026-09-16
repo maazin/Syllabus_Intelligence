@@ -87,7 +87,7 @@ jobs:
         run: |
           docker run -d --name minio -p 9100:9000 \
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio server /data
+            quay.io/minio/minio server /data
           for attempt in $(seq 1 30); do
             if curl -sf http://localhost:9100/minio/health/live >/dev/null; then break; fi
             sleep 2
@@ -95,7 +95,7 @@ jobs:
           # The bucket has to exist; storage.py does not create it, which is the
           # right call for production and means CI has to do what minio-init
           # does in docker compose.
-          docker run --rm --network host --entrypoint sh minio/mc -c \
+          docker run --rm --network host --entrypoint sh quay.io/minio/mc -c \
             "mc alias set local http://localhost:9100 minioadmin minioadmin && \
              mc mb --ignore-existing local/syllabi"
       - uses: astral-sh/setup-uv@v5
