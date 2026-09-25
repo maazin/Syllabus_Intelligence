@@ -321,7 +321,7 @@ jobs:
       - name: Start the stack
         run: |
           docker compose -f infra/docker/docker-compose.yml up -d --build \
-            postgres redis minio minio-init mailhog api worker
+            postgres redis objectstore mailhog api worker
 
       - run: uv pip install --system -r services/api/requirements.txt pdfplumber python-docx beautifulsoup4 reportlab pillow pytest httpx
       - run: cd packages/core && alembic upgrade head
