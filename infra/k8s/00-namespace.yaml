@@ -1,0 +1,20 @@
+# Everything this project runs lives in one namespace, so a `delete namespace`
+# is a complete uninstall and a ResourceQuota later has one place to attach.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: syllint
+  labels:
+    app.kubernetes.io/part-of: syllabus-intelligence
+---
+# The identity every pod here runs as. The annotation is the Kubernetes half of
+# Workload Identity; the Google half is the IAM binding in infra/terraform/gke.tf,
+# which names this exact namespace and name. Change either and pods lose their
+# access to Secret Manager with a 403 that does not say why.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: syllint-workload
+  namespace: syllint
+  annotations:
+    iam.gke.io/gcp-service-account: PLACEHOLDER_WORKLOAD_SA

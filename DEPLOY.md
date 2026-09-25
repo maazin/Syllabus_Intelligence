@@ -15,12 +15,15 @@ and doing them out of order means a second apply.
 |---|---|---|
 | Angular app | Cloudflare Pages | Static files, free, already in the zone doing rate limiting |
 | FastAPI | Cloud Run, scales to zero | Two busy weeks a year; a warm instance the rest of the time buys nothing |
-| Celery workers, Redis, MLflow, Airflow | One `e2-standard-2` VM | A Celery worker long-polls its broker, and Cloud Run throttles CPU outside requests, so a worker there starves |
+| Celery workers, Redis, MLflow, Airflow | GKE, one `e2-standard-2` node | A Celery worker long-polls its broker, and Cloud Run throttles CPU outside requests, so a worker there starves |
 | Postgres | Neon | The only free tier that survives a seasonal workload; Supabase pauses a project after a week idle |
 | Syllabus files | Cloudflare R2 | Free egress, S3 API, so the same boto3 code runs against MinIO locally |
 
-Recurring cost is the VM at roughly six to ten dollars a month plus model
-tokens. Everything else sits inside a free tier. Section 18.5 of the PRD costs a
+Recurring cost is the node pool at roughly six to ten dollars a month plus
+model tokens. Everything else sits inside a free tier, including the GKE
+control plane: one zonal cluster per billing account carries a credit that
+covers it, which is why the cluster is zonal and why a second one would not
+be free. Section 18.5 of the PRD costs a
 four-month term at 50 to 105 dollars for about 500 students.
 
 ---
@@ -46,6 +49,7 @@ which is a slow way to find out.
 gcloud services enable \
   run.googleapis.com \
   compute.googleapis.com \
+  container.googleapis.com \
   artifactregistry.googleapis.com \
   secretmanager.googleapis.com \
   iamcredentials.googleapis.com \
@@ -88,9 +92,8 @@ terraform apply
 
 The four `*_image` variables point at tags that do not exist yet. That is fine
 for the first apply: Cloud Run will fail to pull, the service still gets
-created, and the first deploy replaces the tag. The worker VM is the same
-story, and a `gcloud compute instances reset` after the first deploy brings it
-up properly.
+created, and the first deploy replaces the tag. The cluster comes up with a
+node pool and no workloads, which is also fine: the deploy applies them.
 
 ## 6. Wire up GitHub
 
@@ -125,8 +128,13 @@ Workload Identity Federation mints a token per run, scoped by
 Push to `main`, or run the **Deploy** workflow by hand. The order is:
 
 ```
-CI  ->  build and push images  ->  migrate  ->  API revision  ->  worker VM  ->  web app
+CI  ->  build and push images  ->  migrate  ->  API revision  ->  cluster  ->  web app
 ```
+
+The cluster step installs External Secrets Operator and KEDA (both ship CRDs
+the manifests reference, so they go first and the install waits), applies
+`infra/k8s/`, runs the Airflow Helm chart, then blocks on every rollout and
+asks the worker whether it actually registered the task the API enqueues.
 
 Each step leaves the previous version serving if it fails. Migrations run
 before the new revision exists, so the schema is always at or ahead of the code
@@ -165,6 +173,13 @@ known tag rather than a rebuild:
 gcloud run deploy syllint-production-api \
   --region us-central1 \
   --image us-central1-docker.pkg.dev/PROJECT/syllint/api:GOOD_SHA
+```
+
+On the cluster, a rollback is a rollout undo rather than a redeploy:
+
+```bash
+kubectl -n syllint rollout undo deployment/worker
+helm -n syllint rollback airflow
 ```
 
 Or, faster, split traffic back to the previous revision:
@@ -215,5 +230,9 @@ Listed because a runbook that hides them is worse than no runbook.
 - **The browser suite stubs the API.** `tests/smoke` closes most of that gap
   by driving the loop over HTTP against the compose stack in CI; the Angular
   templates themselves are still only exercised against stubs.
-- **Airflow runs `standalone`.** Fine for one box behind a firewall, not a
-  production Airflow deployment.
+- **The cluster is a single-node zonal one.** A node upgrade or a zone
+  incident is downtime. The queue survives it in Redis, and it is a node-pool
+  size change rather than a redesign when that stops being acceptable.
+- **Nodes have public egress.** Private nodes need a Cloud NAT gateway, which
+  is billed at several times the node pool it would serve. Nothing in the
+  cluster listens publicly; see the comment in `infra/terraform/gke.tf`.

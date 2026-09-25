@@ -1,0 +1,83 @@
+# Bookkeeping for Airflow and MLflow, on the cluster rather than in Neon.
+#
+# The reasoning is unchanged from the compose file this replaces, and it is
+# worth restating because both halves are easy to get wrong:
+#
+#   Airflow's scheduler polls its metadata store every few seconds, forever.
+#   Pointed at Neon, the compute never suspends and the 100 compute-hour free
+#   tier section 18.1 relies on is gone in about four days.
+#
+#   MLflow creates roughly fifteen tables of its own. In the application schema
+#   those become tables `alembic revision --autogenerate` does not know about
+#   and proposes to drop.
+#
+# Reachable only inside the namespace, which is why a fixed local password is
+# not a credential worth putting in Secret Manager.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metadata-db-init
+  namespace: syllint
+data:
+  01-databases.sql: |
+    -- Runs once, on first initialisation of an empty data directory.
+    CREATE DATABASE mlflow OWNER airflow;
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: metadata-db
+  namespace: syllint
+spec:
+  serviceName: metadata-db
+  replicas: 1
+  selector:
+    matchLabels: { app: metadata-db }
+  template:
+    metadata:
+      labels: { app: metadata-db }
+    spec:
+      serviceAccountName: syllint-workload
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - { name: POSTGRES_USER, value: airflow }
+            - { name: POSTGRES_PASSWORD, value: airflow }
+            - { name: POSTGRES_DB, value: airflow }
+            # The image only runs the init scripts when the data directory is
+            # empty, and it refuses to initialise into a non-empty mount. A
+            # subdirectory is the documented way to keep both true across the
+            # lost+found a fresh PersistentVolume arrives with.
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          resources:
+            requests: { cpu: 50m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "airflow"] }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: init, mountPath: /docker-entrypoint-initdb.d, readOnly: true }
+      volumes:
+        - name: init
+          configMap: { name: metadata-db-init }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests: { storage: 10Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metadata-db
+  namespace: syllint
+spec:
+  selector: { app: metadata-db }
+  ports:
+    - { name: postgres, port: 5432, targetPort: postgres }

@@ -222,6 +222,82 @@ jobs:
           path: apps/web/test-results/
           retention-days: 7
 
+  # A manifest that does not parse is a deploy that fails after the images are
+  # already pushed and the migration has already run. Validating here costs
+  # seconds and moves that failure to the pull request.
+  #
+  # The CRD schemas matter as much as the built-in ones: KEDA's ScaledObject and
+  # External Secrets' ExternalSecret are where the deploy-time values live, and
+  # a plain kubeconform run skips anything it has no schema for, reporting a
+  # typo in a CRD as "skipped" rather than as an error.
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render with representative values
+        env:
+          PROJECT_ID: example-project
+          CLUSTER_NAME: syllint-production-cluster
+          CLUSTER_LOCATION: us-central1-a
+          WORKLOAD_SA: syllint-production-workload@example-project.iam.gserviceaccount.com
+          REDIS_IP: 10.128.0.9
+          R2_BUCKET: syllint-production-syllabi
+          R2_ENDPOINT: https://account.r2.cloudflarestorage.com
+          WORKER_IMAGE: us-central1-docker.pkg.dev/example-project/syllint/worker:ci
+          MLFLOW_IMAGE: us-central1-docker.pkg.dev/example-project/syllint/mlflow:ci
+        run: ./infra/k8s/render.sh > /tmp/rendered.yaml
+
+      - name: Validate against Kubernetes and CRD schemas
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar xz kubeconform
+          ./kubeconform -strict -summary \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            /tmp/rendered.yaml
+
+      # Every object must land in the project's namespace. A manifest that
+      # omits it is applied to whatever namespace the deploying context happens
+      # to have, which is how a workload ends up in `default` and invisible.
+      - name: Check namespacing
+        run: |
+          python3 - <<'PY'
+          import sys, yaml
+          cluster_scoped = {"Namespace", "ClusterSecretStore"}
+          bad = [
+              f"{d['kind']}/{d['metadata']['name']}"
+              for d in yaml.safe_load_all(open('/tmp/rendered.yaml'))
+              if d and d['kind'] not in cluster_scoped
+              and d['metadata'].get('namespace') != 'syllint'
+          ]
+          if bad:
+              sys.exit('not namespaced into syllint: ' + ', '.join(bad))
+          print('all namespaced objects are in syllint')
+          PY
+
+      - name: Lint the Airflow values
+        env:
+          AIRFLOW_REPO: us-central1-docker.pkg.dev/example-project/syllint/airflow
+          AIRFLOW_TAG: ci
+        run: |
+          ./infra/k8s/render-airflow.sh > /tmp/airflow-values.yaml
+          helm repo add apache-airflow https://airflow.apache.org
+          helm repo update
+          # Renders the chart with these values and fails on a value the chart
+          # does not accept, which is the class of error that otherwise shows up
+          # ten minutes into a production `helm upgrade --wait`.
+          helm template airflow apache-airflow/airflow \\
+            --version 1.16.0 \\
+            --namespace syllint --values /tmp/airflow-values.yaml > /tmp/airflow-rendered.yaml
+          # The chart version and the image's Airflow version have to agree.
+          # Chart 1.17+ renders Airflow 3 components that a 2.10.5 image cannot
+          # run, and the manifests are valid either way, so schema validation
+          # cannot catch it. The webserver's presence is the cheapest proxy.
+          grep -q "name: airflow-webserver" /tmp/airflow-rendered.yaml \\
+            || { echo "chart rendered no webserver: it is an Airflow 3 chart against a 2.x image"; exit 1; }
+          echo "airflow chart renders against the 2.10.5 topology"
+
   # The one job that runs the pieces together. The Python suite stubs the
   # queue and the browser suite stubs the API, and each is right to; the gap
   # they leave between them is where every MVP-blocking bug so far has lived.
@@ -273,7 +349,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, dbt, terraform, airflow, web, smoke]
+    needs: [lint, typecheck, test, dbt, terraform, airflow, manifests, web, smoke]
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f services/api/Dockerfile -t syllint-api .

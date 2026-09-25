@@ -1,0 +1,69 @@
+# Tracing, the prompt registry, and eval tracking (section 18.1).
+#
+# One replica: MLflow's artifact root here is a ReadWriteOnce volume, so a
+# second replica could not mount it anyway. This is the observability sidecar,
+# and packages/core/prompts/registry.py degrades to a no-op when it is
+# unreachable, so a restart costs traces and never costs a student's parse.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: syllint
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: mlflow }
+  template:
+    metadata:
+      labels: { app: mlflow }
+    spec:
+      serviceAccountName: syllint-workload
+      containers:
+        - name: mlflow
+          image: PLACEHOLDER_MLFLOW_IMAGE
+          args:
+            - mlflow
+            - server
+            - --host
+            - 0.0.0.0
+            - --port
+            - "5000"
+            - --backend-store-uri
+            - postgresql://airflow:airflow@metadata-db:5432/mlflow
+            - --default-artifact-root
+            - /mlruns
+          ports:
+            - { name: http, containerPort: 5000 }
+          resources:
+            requests: { cpu: 50m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          volumeMounts:
+            - { name: artifacts, mountPath: /mlruns }
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim: { claimName: mlflow-artifacts }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-artifacts
+  namespace: syllint
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: { storage: 10Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: syllint
+spec:
+  selector: { app: mlflow }
+  ports:
+    - { name: http, port: 5000, targetPort: http }

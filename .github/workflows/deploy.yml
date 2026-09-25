@@ -3,7 +3,7 @@
 # The order below is the whole design, and it is chosen so that a failure at any
 # step leaves the previous version serving:
 #
-#   build and push  ->  migrate  ->  API revision  ->  web app
+#   build and push  ->  migrate  ->  API revision  ->  cluster  ->  web app
 #
 # Migrations run before the new revision exists, so the schema is always at or
 # ahead of the code reading it. That is only safe because section 27 requires
@@ -186,17 +186,24 @@ jobs:
           echo "the new revision never returned a healthy /health"
           exit 1
 
-  # Restarting the VM re-runs the boot script, which pulls the new worker image
-  # and converges the compose stack. Blunt, and correct for one box: there is no
-  # rolling update to perform and a few seconds of queued work is not lost,
-  # because Redis persists its append-only file across the restart.
-  worker:
+  # The always-on half of the system (PRD 18.2): Redis, the Celery workers,
+  # MLflow and Airflow.
+  #
+  # This used to be `gcloud compute instances reset`, a hard restart of every
+  # process on one VM with no health gate and nothing to roll back to. On the
+  # cluster each workload rolls independently, old pods stay up until new ones
+  # are ready, and a failed rollout is a non-zero exit here rather than a
+  # discovery the next morning.
+  cluster:
     needs: [configured, images, api]
     if: needs.configured.outputs.ready == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+    env:
+      CLUSTER_NAME: syllint-production-cluster
+      NAMESPACE: syllint
     steps:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2
@@ -204,10 +211,96 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
-      - name: Restart the worker VM onto the new images
+        with:
+          # kubectl cannot authenticate to GKE without this plugin, and the
+          # failure message names an exec credential rather than a missing
+          # component.
+          install_components: gke-gcloud-auth-plugin
+      - uses: azure/setup-helm@v4
+
+      - name: Get cluster credentials
         run: |
-          gcloud compute instances reset "syllint-production-worker" \
-            --zone "${{ vars.GCP_REGION }}-a" --quiet
+          gcloud container clusters get-credentials "$CLUSTER_NAME" \
+            --zone "${{ vars.GCP_REGION }}-a" --project "${{ vars.GCP_PROJECT_ID }}"
+
+      # Cluster-scoped operators first: both install CRDs that the manifests
+      # below reference, and `kubectl apply` on a CRD that does not exist yet
+      # fails outright. --wait so the CRDs are actually registered, not merely
+      # requested.
+      - name: Install External Secrets Operator and KEDA
+        run: |
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo add kedacore https://kedacore.github.io/charts
+          helm repo add apache-airflow https://airflow.apache.org
+          helm repo update
+
+          helm upgrade --install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets --create-namespace \
+            --set installCRDs=true --wait --timeout 5m
+
+          helm upgrade --install keda kedacore/keda \
+            --namespace keda --create-namespace --wait --timeout 5m
+
+      - name: Apply the workloads
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          CLUSTER_LOCATION: ${{ vars.GCP_REGION }}-a
+          WORKLOAD_SA: syllint-production-workload@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+          R2_BUCKET: syllint-production-syllabi
+          R2_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          WORKER_IMAGE: ${{ env.IMAGE_PREFIX }}/worker:${{ needs.images.outputs.tag }}
+          MLFLOW_IMAGE: ${{ env.IMAGE_PREFIX }}/mlflow:${{ needs.images.outputs.tag }}
+        run: |
+          # The address Terraform reserved. Read rather than hardcoded: it is
+          # also baked into the Cloud Run service's REDIS_URL, and the two
+          # disagreeing means uploads queue into nothing.
+          REDIS_IP=$(gcloud compute addresses describe "syllint-production-redis" \
+            --region "${{ vars.GCP_REGION }}" --format 'value(address)')
+          export REDIS_IP
+          echo "Redis internal address: $REDIS_IP"
+
+          ./infra/k8s/render.sh | tee /tmp/rendered.yaml | kubectl apply -f -
+
+      - name: Deploy Airflow
+        env:
+          AIRFLOW_REPO: ${{ env.IMAGE_PREFIX }}/airflow
+          AIRFLOW_TAG: ${{ needs.images.outputs.tag }}
+        run: |
+          ./infra/k8s/render-airflow.sh > /tmp/airflow-values.yaml
+          # Version pinned to the chart whose appVersion matches the image.
+          # See the header of infra/k8s/airflow-values.yaml.
+          helm upgrade --install airflow apache-airflow/airflow \\
+            --version 1.16.0 \\
+            --namespace "$NAMESPACE" \\
+            --values /tmp/airflow-values.yaml \\
+            --wait --timeout 10m
+
+      # A rollout that never converges is the failure this job exists to catch.
+      # Without an explicit wait the apply returns success the moment the API
+      # server accepts the object, which says nothing about whether a pod
+      # started.
+      - name: Wait for the rollouts
+        run: |
+          kubectl -n "$NAMESPACE" rollout status statefulset/metadata-db --timeout 5m
+          kubectl -n "$NAMESPACE" rollout status statefulset/redis --timeout 5m
+          kubectl -n "$NAMESPACE" rollout status deployment/mlflow --timeout 5m
+          kubectl -n "$NAMESPACE" rollout status deployment/worker --timeout 10m
+
+      - name: Check the worker answers on the broker
+        run: |
+          # Registered-and-responding, not merely running. A worker that came
+          # up without its task registered is exactly the failure a pod status
+          # of Running hides.
+          kubectl -n "$NAMESPACE" exec deploy/worker -- \
+            celery -A services.worker.celery_app inspect registered --timeout 30 \
+            | tee /dev/stderr | grep -q 'documents.parse'
+
+      - name: Cluster state on failure
+        if: failure()
+        run: |
+          kubectl -n "$NAMESPACE" get pods,externalsecrets,scaledobjects -o wide || true
+          kubectl -n "$NAMESPACE" describe pods || true
+          kubectl -n "$NAMESPACE" logs -l app=worker --tail 100 --all-containers || true
 
   web:
     needs: [configured, api]

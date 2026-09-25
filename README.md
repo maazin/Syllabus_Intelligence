@@ -179,13 +179,28 @@ prompt as exactly as blocking as a failing test.
 python scripts/register_prompts.py --promote
 ```
 
-**Terraform** (`infra/terraform`) describes Cloud Run, the always-on worker VM,
-Neon, R2, and Cloudflare. `terraform validate` passes; applying it needs your
-cloud accounts. Writing it surfaced two errors that would have failed at apply
-time: the v4 Cloudflare provider has no R2 lifecycle resource, and the Neon
-attribute is `default_branch_id` rather than `branch_id`. The lifecycle gap is
-documented in `storage.tf` with the wrangler command that covers it, rather than
-quietly dropped.
+**Terraform** (`infra/terraform`) describes Cloud Run, the GKE cluster, Neon,
+R2, and Cloudflare. `terraform validate` passes; applying it needs your cloud
+accounts. Writing it surfaced two errors that would have failed at apply time:
+the v4 Cloudflare provider has no R2 lifecycle resource, and the Neon attribute
+is `default_branch_id` rather than `branch_id`. The lifecycle gap is documented
+in `storage.tf` with the wrangler command that covers it, rather than quietly
+dropped.
+
+**Kubernetes** (`infra/k8s`) runs the four workloads that cannot be serverless:
+Redis, the Celery workers, MLflow, and Airflow. They were a Docker Compose file
+on a VM, deployed by restarting the instance. Moving them onto GKE bought three
+things worth the move: rolling updates with a health gate instead of a hard
+restart, KEDA scaling the workers on Redis queue depth rather than CPU (a
+worker blocked on the model API is idle, so CPU scales the pool down exactly
+when the backlog is deepest), and Airflow on its own Helm chart instead of
+`airflow standalone`, which was a development mode and a listed gap.
+
+Rendering the chart before deploying it caught the thing most likely to have
+cost an afternoon: the unpinned chart deploys the Airflow 3 topology, which
+produces perfectly valid manifests describing components that the 2.10.5 image
+has no commands for. CI now pins the chart and asserts the rendered topology
+matches the image.
 
 ---
 
@@ -435,8 +450,8 @@ services/pipeline/   dbt models and the Airflow DAG that builds the corpus
 apps/web/            Angular front end and the Playwright suite
 scripts/             seed, fixture generation, pipeline runner
 tests/               fixtures, golden set, end-to-end tests
-infra/docker/        local dev stack and the images the VM runs
-infra/terraform/     Cloud Run, the worker VM, Neon, R2, Pages, DNS
-infra/deploy/        the boot script that converges the worker VM
+infra/docker/        local dev stack and the images the cluster runs
+infra/terraform/     Cloud Run, GKE, Neon, R2, Pages, DNS
+infra/k8s/           manifests for the always-on workloads, plus Airflow's Helm values
 .github/workflows/   CI, the deploy pipeline, and the eval gate
 ```

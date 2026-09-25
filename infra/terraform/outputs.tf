@@ -11,9 +11,23 @@ output "r2_bucket" {
   value = cloudflare_r2_bucket.syllabi.name
 }
 
-output "worker_vm_ip" {
-  description = "Always-on VM running Redis, Celery, MLflow, and Airflow (18.2)."
-  value       = google_compute_instance.worker.network_interface[0].access_config[0].nat_ip
+output "cluster_name" {
+  description = "GKE cluster running Redis, Celery, MLflow, and Airflow (18.2)."
+  value       = google_container_cluster.main.name
+}
+
+output "cluster_location" {
+  value = google_container_cluster.main.location
+}
+
+output "redis_internal_ip" {
+  description = "Reserved address the Redis Service must bind, and the one Cloud Run dials."
+  value       = google_compute_address.redis.address
+}
+
+output "workload_service_account" {
+  description = "Pods impersonate this through Workload Identity to read Secret Manager."
+  value       = google_service_account.workload.email
 }
 
 output "database_host" {
@@ -25,10 +39,12 @@ output "database_host" {
 output "estimated_monthly_cost_usd" {
   description = <<-EOT
     Section 18.5 costs a four-month term at roughly 50 to 105 dollars for about
-    500 students. Infrastructure is the small half: everything except the VM
-    and email sits in a free tier, and LLM tokens dominate the rest.
+    500 students. Infrastructure is the small half: everything except the
+    cluster's node pool and email sits in a free tier, and LLM tokens dominate
+    the rest. The GKE control plane is covered by the one-zonal-cluster credit,
+    so the node pool is the same machine the VM was, at the same price.
   EOT
-  value       = "VM ~$6-10; Cloud Run, Neon, R2, Cloudflare within free tiers; LLM tokens $25-50/term"
+  value       = "Node pool ~$6-10; GKE control plane, Cloud Run, Neon, R2, Cloudflare within free tiers; LLM tokens $25-50/term"
 }
 
 # ------------------------------------------------------- values CI needs

@@ -60,12 +60,12 @@ variable "container_image" {
   type        = string
 }
 
-variable "worker_vm_machine_type" {
+variable "worker_node_machine_type" {
   description = <<-EOT
-    Section 18.2: Celery cannot scale to zero on Cloud Run, because a worker
-    long-polls its broker and CPU is throttled outside requests. The always-on
-    VM hosts Redis, the Celery workers, MLflow, and Airflow. 8 GB once Airflow
-    is included, per 18.2.
+    Node type for the GKE pool that runs Redis, the Celery workers, MLflow and
+    Airflow. Section 18.2 sizes this at 8 GB once Airflow is included, which is
+    what e2-standard-2 gives; it is the same machine the pre-Kubernetes VM ran
+    on, so the cost envelope in 18.5 is unchanged.
   EOT
   type        = string
   default     = "e2-standard-2"

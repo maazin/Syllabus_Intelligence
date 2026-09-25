@@ -1,0 +1,109 @@
+# Values for the official Apache Airflow Helm chart, version 1.16.0.
+#
+# The chart version is pinned, and it is not cosmetic. Chart 1.17 and later
+# deploy the Airflow 3 topology: an `api-server` Deployment and a standalone
+# `dag-processor`, replacing the `webserver` this image knows how to run.
+# Rendering the unpinned chart against apache/airflow:2.10.5 produces a
+# perfectly valid manifest set describing components the image has no commands
+# for, and the failure surfaces ten minutes into `helm upgrade --wait` as pods
+# that never become ready. 1.16.0 is the chart whose appVersion is exactly
+# 2.10.5, which is what infra/docker/airflow.Dockerfile builds on.
+#
+# Moving to Airflow 3 is a deliberate upgrade of both at once, not a chart bump.
+#
+# This is the point of moving off the VM for Airflow specifically. There it ran
+# `airflow standalone`, which is a development mode that bundles the webserver,
+# the scheduler and a SQLite-or-whatever metadata store into one process, and
+# DEPLOY.md listed it as a known gap. The chart is the project's own supported
+# deployment: scheduler and webserver as separate Deployments, a migration Job
+# that runs before either, and a real LocalExecutor.
+
+executor: LocalExecutor
+
+# Our image, with the DAG and the dbt project baked in (infra/docker/airflow.Dockerfile).
+# Baked rather than git-synced: the DAG and the dbt models are versioned with
+# the code that produces the tables they read, and a sidecar pulling `main`
+# would let the two drift between deploys.
+images:
+  airflow:
+    repository: PLACEHOLDER_AIRFLOW_REPO
+    tag: PLACEHOLDER_AIRFLOW_TAG
+    pullPolicy: IfNotPresent
+
+# The chart ships a PostgreSQL subchart and a Redis subchart. Both are off:
+# the metadata store is the shared one in 30-metadata-db.yaml, and LocalExecutor
+# needs no broker. Leaving them on would run a second Postgres and an idle
+# Redis on a two-vCPU node for nothing.
+postgresql:
+  enabled: false
+redis:
+  enabled: false
+
+data:
+  metadataConnection:
+    user: airflow
+    pass: airflow
+    protocol: postgresql
+    host: metadata-db.syllint.svc.cluster.local
+    port: 5432
+    db: airflow
+
+# Fixed rather than chart-generated. A generated key changes on every `helm
+# upgrade`, which invalidates every session and logs everyone out on each
+# deploy.
+webserverSecretKeySecretName: airflow-webserver-secret
+
+# Every Airflow pod gets the same configuration the workers do, which is what
+# lets report_coverage reach Neon and the dbt tasks reach the corpus.
+env:
+  - name: AIRFLOW__CORE__LOAD_EXAMPLES
+    value: "False"
+  - name: AIRFLOW__WEBSERVER__EXPOSE_CONFIG
+    value: "False"
+
+extraEnvFrom: |
+  - configMapRef:
+      name: syllint-config
+  - secretRef:
+      name: syllint-secrets
+
+dags:
+  persistence:
+    enabled: false
+  gitSync:
+    enabled: false
+
+scheduler:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { memory: 2Gi }
+
+webserver:
+  replicas: 1
+  # Internal only. This is an operator's console, not a student-facing surface,
+  # and it is reached with `kubectl port-forward`. An Ingress here would put an
+  # Airflow login on the public internet to save a command.
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { memory: 1Gi }
+
+triggerer:
+  # No deferrable operators in this DAG; the triggerer would be an idle pod.
+  enabled: false
+
+statsd:
+  enabled: false
+
+# `airflow db migrate` as a pre-upgrade hook, so the schema is never behind the
+# scheduler that reads it.
+migrateDatabaseJob:
+  enabled: true
+  useHelmHooks: true
+
+createUserJob:
+  # No `enabled` key on this chart: the admin user job always runs. Only the
+  # hook behaviour is configurable.
+  useHelmHooks: true
