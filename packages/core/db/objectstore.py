@@ -1,7 +1,8 @@
 """Object storage client (PRD sections 7, 18.1).
 
-R2 in production, MinIO locally, one code path: R2 implements the S3 API, so
-the boto3 calls and the `R2_*` variable names are identical in both places.
+R2 in production, LocalStack locally, one code path: R2 implements the S3
+API, so the boto3 calls and the `R2_*` variable names are identical in both
+places, down to the `region_name="auto"` that R2 requires.
 
 This lives in the shared library rather than in the API because both services
 touch the store: the API writes an upload, the worker reads it back to parse.
@@ -26,8 +27,8 @@ def client() -> Any:
     return boto3.client(
         "s3",
         endpoint_url=os.environ.get("R2_ENDPOINT", "http://localhost:9100"),
-        aws_access_key_id=os.environ.get("R2_ACCESS_KEY_ID", "minioadmin"),
-        aws_secret_access_key=os.environ.get("R2_SECRET_ACCESS_KEY", "minioadmin"),
+        aws_access_key_id=os.environ.get("R2_ACCESS_KEY_ID", "localstack"),
+        aws_secret_access_key=os.environ.get("R2_SECRET_ACCESS_KEY", "localstack"),
         config=Config(signature_version="s3v4"),
         region_name="auto",
     )

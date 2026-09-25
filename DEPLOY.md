@@ -17,7 +17,7 @@ and doing them out of order means a second apply.
 | FastAPI | Cloud Run, scales to zero | Two busy weeks a year; a warm instance the rest of the time buys nothing |
 | Celery workers, Redis, MLflow, Airflow | GKE, one `e2-standard-2` node | A Celery worker long-polls its broker, and Cloud Run throttles CPU outside requests, so a worker there starves |
 | Postgres | Neon | The only free tier that survives a seasonal workload; Supabase pauses a project after a week idle |
-| Syllabus files | Cloudflare R2 | Free egress, S3 API, so the same boto3 code runs against MinIO locally |
+| Syllabus files | Cloudflare R2 | Free egress, S3 API, so the same boto3 code runs against LocalStack locally |
 
 Recurring cost is the node pool at roughly six to ten dollars a month plus
 model tokens. Everything else sits inside a free tier, including the GKE

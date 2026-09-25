@@ -46,7 +46,7 @@ a bug in one of them worth resolving explicitly.
 
 ```bash
 cp .env.example .env
-docker compose -f infra/docker/docker-compose.yml up -d postgres redis minio mailhog
+docker compose -f infra/docker/docker-compose.yml up -d postgres redis objectstore mailhog
 ```
 
 ```bash
@@ -81,7 +81,7 @@ Local services (host ports are offset so this stack coexists with other projects
 |---|---|
 | API + OpenAPI docs | http://localhost:8100/docs |
 | MailHog (catches magic links) | http://localhost:8125 |
-| MinIO console | http://localhost:9101 |
+| Object store (LocalStack S3) | http://localhost:9100 |
 | Web app | http://localhost:4200 |
 | MLflow | http://localhost:5100 |
 | Airflow | http://localhost:8180 (airflow / airflow) |

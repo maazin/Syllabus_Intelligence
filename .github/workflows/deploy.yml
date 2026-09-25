@@ -269,10 +269,10 @@ jobs:
           ./infra/k8s/render-airflow.sh > /tmp/airflow-values.yaml
           # Version pinned to the chart whose appVersion matches the image.
           # See the header of infra/k8s/airflow-values.yaml.
-          helm upgrade --install airflow apache-airflow/airflow \\
-            --version 1.16.0 \\
-            --namespace "$NAMESPACE" \\
-            --values /tmp/airflow-values.yaml \\
+          helm upgrade --install airflow apache-airflow/airflow \
+            --version 1.16.0 \
+            --namespace "$NAMESPACE" \
+            --values /tmp/airflow-values.yaml \
             --wait --timeout 10m
 
       # A rollout that never converges is the failure this job exists to catch.
