@@ -4,8 +4,10 @@
 # so it scales to zero on Cloud Run and stays inside the free grant. The Celery
 # workers cannot: a worker long-polls its broker, and Cloud Run throttles CPU
 # outside of requests, so a worker there starves unless you pin CPU-always-on
-# and a minimum instance, which is the opposite of scaling to zero. They run on
-# one small always-on VM instead, which also hosts Redis, MLflow, and Airflow.
+# and a minimum instance, which is the opposite of scaling to zero.
+#
+# The always-on half lives on the GKE cluster in gke.tf: Redis, the Celery
+# workers, MLflow and Airflow. This file owns only the serverless half.
 
 resource "google_cloud_run_v2_service" "api" {
   name     = "syllint-${var.environment}-api"
@@ -83,9 +85,10 @@ resource "google_cloud_run_v2_service" "api" {
           LLM_MODEL_STRONG = var.llm_model_strong
           LLM_MODEL_BATCH  = var.llm_model_batch
 
-          # The broker lives on the worker VM's internal address, reachable
-          # only through the VPC egress configured below.
-          REDIS_URL = "redis://${google_compute_instance.worker.network_interface[0].network_ip}:6379/0"
+          # The broker is an internal load balancer in front of the cluster's
+          # Redis, on a reserved address so this value survives the Service
+          # being recreated. Reachable only through the VPC egress below.
+          REDIS_URL = "redis://${google_compute_address.redis.address}:6379/0"
 
           GOOGLE_CALENDAR_CLIENT_ID = var.google_calendar_client_id
         }
@@ -133,91 +136,6 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
-
-# The always-on box. Section 18.2 costs this at roughly EUR 5.49 for 4 GB, or
-# EUR 8.49 for 8 GB once Airflow is included. This is the one line in the
-# architecture that is deliberately not free, and 18.2 argues the trade is
-# worth it: about six dollars a month buys the standard Python task queue and
-# somewhere to put the four things that genuinely cannot be serverless.
-resource "google_compute_instance" "worker" {
-  name         = "syllint-${var.environment}-worker"
-  machine_type = var.worker_vm_machine_type
-  zone         = "${var.gcp_region}-a"
-
-  boot_disk {
-    initialize_params {
-      image = "debian-cloud/debian-12"
-      size  = 30
-      type  = "pd-standard"
-    }
-  }
-
-  network_interface {
-    network = "default"
-    access_config {
-      # Ephemeral IP. The worker makes outbound calls and accepts none.
-    }
-  }
-
-  service_account {
-    email  = google_service_account.api.email
-    scopes = ["cloud-platform"]
-  }
-
-  metadata = {
-    # Password auth off entirely; access is via OS Login and IAM.
-    enable-oslogin = "TRUE"
-
-    # Runs on every boot and is written to converge rather than to assume a
-    # clean disk, which makes "restart the VM" a legitimate deploy for the
-    # worker and a legitimate recovery for a wedged container.
-    startup-script = templatefile("${path.module}/../deploy/worker-startup.sh", {
-      environment      = var.environment
-      region           = var.gcp_region
-      worker_image     = var.worker_image
-      mlflow_image     = var.mlflow_image
-      airflow_image    = var.airflow_image
-      r2_bucket        = cloudflare_r2_bucket.syllabi.name
-      r2_endpoint      = "https://${var.cloudflare_account_id}.r2.cloudflarestorage.com"
-      llm_model_sync   = var.llm_model_sync
-      llm_model_strong = var.llm_model_strong
-      llm_model_batch  = var.llm_model_batch
-    })
-  }
-
-  tags = ["syllint-worker"]
-
-  lifecycle {
-    # The boot disk holds Redis's append-only file and MLflow's artifacts.
-    # Losing it silently on an image bump would take the extraction audit trail
-    # with it.
-    prevent_destroy = true
-  }
-
-  # The boot script reads every one of these from Secret Manager. Without the
-  # explicit edge Terraform is free to create the instance first, and the VM
-  # comes up with an env file full of empty strings and no error anywhere.
-  depends_on = [
-    google_secret_manager_secret_version.app,
-    google_secret_manager_secret_iam_member.api_access,
-  ]
-}
-
-# Redis, MLflow, and Airflow are reachable only from inside the VPC. Nothing on
-# this box should be exposed to the internet.
-resource "google_compute_firewall" "worker_internal" {
-  name    = "syllint-${var.environment}-worker-internal"
-  network = "default"
-
-  allow {
-    protocol = "tcp"
-    ports    = ["6379", "5000", "8080"]
-  }
-
-  source_ranges = ["10.128.0.0/9"]
-  target_tags   = ["syllint-worker"]
-}
-
 
 # ---------------------------------------------------------------- migrations
 

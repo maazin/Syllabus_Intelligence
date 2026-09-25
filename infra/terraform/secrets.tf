@@ -32,6 +32,10 @@ locals {
     token-encryption-key = random_bytes.token_key.base64
 
     google-calendar-client-secret = var.google_calendar_client_secret
+
+    # Airflow's session signing key. Generated here so it is stable across
+    # `helm upgrade`, which otherwise rotates it and logs everyone out.
+    airflow-webserver-key = random_password.airflow_webserver.result
   }
 }
 
@@ -46,6 +50,11 @@ resource "random_password" "jwt" {
 # and translates it, so no url-safe massaging is needed here.
 resource "random_bytes" "token_key" {
   length = 32
+}
+
+resource "random_password" "airflow_webserver" {
+  length  = 48
+  special = false
 }
 
 resource "cloudflare_api_token" "r2" {

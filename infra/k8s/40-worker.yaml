@@ -1,0 +1,105 @@
+# The Celery workers. This is the workload the cluster exists for.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: syllint
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: worker }
+  strategy:
+    rollingUpdate:
+      # One at a time, old pod not removed until the new one is ready. This is
+      # the thing the VM could not do: deploying the worker there was
+      # `gcloud compute instances reset`, a hard restart of every process on
+      # the box with no health gate and nothing to roll back to.
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels: { app: worker }
+    spec:
+      serviceAccountName: syllint-workload
+      # Celery acks late (celery_app.py), so a task interrupted mid-flight is
+      # redelivered rather than lost. This gives an in-progress extraction time
+      # to finish first, which is the difference between redelivery being a
+      # rare correctness net and being routine.
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: worker
+          image: PLACEHOLDER_WORKER_IMAGE
+          args:
+            - celery
+            - -A
+            - services.worker.celery_app
+            - worker
+            - --loglevel=info
+            # Two per pod. Extraction is I/O bound on the model call, but
+            # Docling's layout pass is not, and oversubscribing turns one slow
+            # PDF into a stalled queue. Horizontal scaling is KEDA's job below.
+            - --concurrency=2
+          envFrom:
+            - configMapRef: { name: syllint-config }
+            - secretRef: { name: syllint-secrets }
+          resources:
+            # Docling pulls torch, and a scanned PDF's layout pass is the
+            # memory high-water mark. Requesting too little here is how a node
+            # ends up overcommitted and the kernel kills a parse mid-document.
+            requests: { cpu: 500m, memory: 2Gi }
+            limits: { memory: 4Gi }
+          livenessProbe:
+            # `celery inspect ping` asks the worker's own event loop to answer.
+            # A worker wedged on a hung request fails this while its process is
+            # still alive, which is exactly the case a process check misses.
+            exec:
+              command:
+                - celery
+                - -A
+                - services.worker.celery_app
+                - inspect
+                - ping
+                - -d
+                - celery@$(hostname)
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 3
+---
+# Horizontal scaling on queue depth, which is the honest signal here.
+#
+# CPU would be the wrong one: a worker waiting on the model API is idle, so a
+# CPU-driven autoscaler scales *down* exactly when the queue is deepest. The
+# number that matters is how many syllabi are waiting.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker
+  namespace: syllint
+spec:
+  scaleTargetRef:
+    name: worker
+  # Not zero, deliberately. The worker image carries Docling and torch and is
+  # about 3.7 GB; a cold pod means a multi-minute image pull before the first
+  # upload of the day is even looked at. US-1 targets p95 under three minutes
+  # end to end, and scale-to-zero would spend most of that budget on a pull to
+  # save the cost of one small pod. Five is the ceiling because the node pool
+  # tops out at three nodes.
+  minReplicaCount: 1
+  maxReplicaCount: 5
+  pollingInterval: 15
+  # Five minutes of quiet before scaling in, so the burst of a student
+  # uploading five syllabi does not thrash the Deployment.
+  cooldownPeriod: 300
+  triggers:
+    - type: redis
+      metadata:
+        address: redis.syllint.svc.cluster.local:6379
+        # Celery's default queue name. Tasks are enqueued by name from the API
+        # (services/api/queue.py) with no custom routing, so they land here.
+        listName: celery
+        # One more pod per five waiting documents. Each pod runs two workers,
+        # so this keeps roughly two or three documents queued per worker:
+        # enough that nobody is idle, not so much that the queue is a backlog.
+        listLength: "5"
+        activationListLength: "1"

@@ -1,0 +1,80 @@
+# The Celery broker.
+#
+# A StatefulSet, not a Deployment, and the reason is the append-only file. That
+# file is the queue of work in flight: syllabi a student has uploaded and is
+# waiting on. A Deployment with a shared volume would let a rolling update run
+# two Redis processes against one data directory, which corrupts it. A
+# StatefulSet with one replica guarantees the old pod is gone before the new
+# one starts.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: syllint
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      serviceAccountName: syllint-workload
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          # appendonly, so a restart does not silently drop queued extractions.
+          args: ["redis-server", "--appendonly", "yes"]
+          ports:
+            - { name: redis, containerPort: 6379 }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          readinessProbe:
+            exec: { command: ["redis-cli", "ping"] }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: ["redis-cli", "ping"] }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - { name: data, mountPath: /data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests: { storage: 5Gi }
+---
+# In-cluster name. The workers dial redis:6379.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: syllint
+spec:
+  selector: { app: redis }
+  ports:
+    - { name: redis, port: 6379, targetPort: redis }
+---
+# The same Redis, on a VPC address, because the API enqueues from Cloud Run.
+#
+# Internal, never public: an internet-reachable broker with no auth is an open
+# door to the task queue. The loadBalancerIP is the address Terraform reserved,
+# and it has to match, because that is the value baked into the Cloud Run
+# service's REDIS_URL.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-internal
+  namespace: syllint
+  annotations:
+    networking.gke.io/load-balancer-type: "Internal"
+spec:
+  type: LoadBalancer
+  loadBalancerIP: PLACEHOLDER_REDIS_IP
+  selector: { app: redis }
+  ports:
+    - { name: redis, port: 6379, targetPort: redis }

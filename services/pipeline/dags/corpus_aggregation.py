@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta
+from urllib.parse import unquote, urlsplit
 
 from airflow.models.dag import DAG
 from airflow.operators.bash import BashOperator
@@ -35,6 +36,35 @@ DBT_DIR = f"{REPO_ROOT}/services/pipeline/dbt"
 # exist inside this container and the DAG would fail on its first run in a
 # way that reads like a credentials problem.
 DBT_TARGET = os.environ.get("DBT_TARGET", "dev")
+
+
+def dbt_env() -> dict[str, str]:
+    """The environment a dbt task needs, with the connection derived once.
+
+    profiles.yml takes host, port, user, password and database as five separate
+    settings, and the only value this deployment is given is a URL. Deriving
+    them here rather than setting them alongside it is deliberate: two spellings
+    of one credential drift the moment either is rotated, and the failure is a
+    nightly job authenticating with yesterday's password.
+
+    Previously this parsing lived in the VM's boot script, which meant the DAG
+    only ran on a host that had run it. Doing it in the DAG makes the task
+    portable to any runtime that can supply the URL.
+    """
+    env = {"DBT_PROFILES_DIR": DBT_DIR, **os.environ}
+    url = urlsplit(os.environ.get("DATABASE_URL_PSYCOPG", ""))
+    if url.hostname:
+        env.update(
+            {
+                "POSTGRES_HOST": url.hostname,
+                "POSTGRES_PORT": str(url.port or 5432),
+                "POSTGRES_USER": unquote(url.username or ""),
+                "POSTGRES_PASSWORD": unquote(url.password or ""),
+                "POSTGRES_DB": (url.path or "/").lstrip("/").split("?")[0],
+            }
+        )
+    return env
+
 
 DEFAULT_ARGS = {
     "owner": "syllabus-intelligence",
@@ -125,7 +155,7 @@ with DAG(
     dbt_deps = BashOperator(
         task_id="dbt_deps",
         bash_command=f"cd {DBT_DIR} && dbt deps --no-version-check --target {DBT_TARGET}",
-        env={"DBT_PROFILES_DIR": DBT_DIR, **os.environ},
+        env=dbt_env(),
     )
 
     # Staging and intermediate first, so a source-shape change fails here with a
@@ -136,7 +166,7 @@ with DAG(
             f"cd {DBT_DIR} && dbt run --no-version-check --target {DBT_TARGET} "
             "--select staging.* intermediate.*"
         ),
-        env={"DBT_PROFILES_DIR": DBT_DIR, **os.environ},
+        env=dbt_env(),
     )
 
     test_staging = BashOperator(
@@ -145,7 +175,7 @@ with DAG(
             f"cd {DBT_DIR} && dbt test --no-version-check --target {DBT_TARGET} "
             "--select source:* staging.* intermediate.*"
         ),
-        env={"DBT_PROFILES_DIR": DBT_DIR, **os.environ},
+        env=dbt_env(),
     )
 
     build_marts = BashOperator(
@@ -153,7 +183,7 @@ with DAG(
         bash_command=(
             f"cd {DBT_DIR} && dbt run --no-version-check --target {DBT_TARGET} --select marts.*"
         ),
-        env={"DBT_PROFILES_DIR": DBT_DIR, **os.environ},
+        env=dbt_env(),
     )
 
     # The gate. 14.2 will not publish a profile whose weights do not validate or
@@ -164,7 +194,7 @@ with DAG(
         bash_command=(
             f"cd {DBT_DIR} && dbt test --no-version-check --target {DBT_TARGET} --select marts.*"
         ),
-        env={"DBT_PROFILES_DIR": DBT_DIR, **os.environ},
+        env=dbt_env(),
     )
 
     coverage = PythonOperator(
@@ -179,7 +209,7 @@ with DAG(
         bash_command=(
             f"cd {DBT_DIR} && dbt docs generate --no-version-check --target {DBT_TARGET}"
         ),
-        env={"DBT_PROFILES_DIR": DBT_DIR, **os.environ},
+        env=dbt_env(),
     )
 
     dbt_deps >> build_staging >> test_staging >> build_marts >> test_marts >> coverage >> docs
