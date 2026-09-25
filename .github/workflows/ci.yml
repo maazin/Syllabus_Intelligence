@@ -74,30 +74,31 @@ jobs:
       # rather than a mock, because the thing worth testing is that boto3 code
       # written for R2 works unchanged against an S3 implementation.
       R2_ENDPOINT: http://localhost:9100
-      R2_ACCESS_KEY_ID: minioadmin
-      R2_SECRET_ACCESS_KEY: minioadmin
+      R2_ACCESS_KEY_ID: localstack
+      R2_SECRET_ACCESS_KEY: localstack
       R2_BUCKET: syllabi
     steps:
       - uses: actions/checkout@v4
 
-      # Started as a step rather than a service container: minio/minio needs
-      # `server /data` as its command, and a service container can set an image
-      # and options but not a command.
+      # LocalStack, not MinIO. MinIO stopped publishing pullable images: Docker
+      # Hub answers "pull access denied" and quay.io now requires auth for the
+      # whole repository, which broke every job that could not pull from a warm
+      # cache. LocalStack implements the same S3 API, so nothing in the
+      # application changes.
+      #
+      # A step rather than a service container, because LocalStack needs a
+      # command and a service container cannot set one.
       - name: Start object storage
         run: |
-          docker run -d --name minio -p 9100:9000 \
-            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            quay.io/minio/minio server /data
-          for attempt in $(seq 1 30); do
-            if curl -sf http://localhost:9100/minio/health/live >/dev/null; then break; fi
-            sleep 2
+          docker run -d --name objectstore -p 9100:4566 \
+            -e SERVICES=s3 localstack/localstack:3
+          for attempt in $(seq 1 40); do
+            if curl -sf http://localhost:9100/_localstack/health >/dev/null; then break; fi
+            sleep 3
           done
-          # The bucket has to exist; storage.py does not create it, which is the
-          # right call for production and means CI has to do what minio-init
-          # does in docker compose.
-          docker run --rm --network host --entrypoint sh quay.io/minio/mc -c \
-            "mc alias set local http://localhost:9100 minioadmin minioadmin && \
-             mc mb --ignore-existing local/syllabi"
+          # storage.py does not create the bucket, which is the right call for
+          # production and means every environment has to.
+          docker exec objectstore awslocal s3 mb s3://syllabi
       - uses: astral-sh/setup-uv@v5
       # A managed interpreter, not the runner's system Python. `uv pip install
       # --system` against /usr fails outright on a PEP 668 externally-managed
@@ -287,14 +288,14 @@ jobs:
           # Renders the chart with these values and fails on a value the chart
           # does not accept, which is the class of error that otherwise shows up
           # ten minutes into a production `helm upgrade --wait`.
-          helm template airflow apache-airflow/airflow \\
-            --version 1.16.0 \\
+          helm template airflow apache-airflow/airflow \
+            --version 1.16.0 \
             --namespace syllint --values /tmp/airflow-values.yaml > /tmp/airflow-rendered.yaml
           # The chart version and the image's Airflow version have to agree.
           # Chart 1.17+ renders Airflow 3 components that a 2.10.5 image cannot
           # run, and the manifests are valid either way, so schema validation
           # cannot catch it. The webserver's presence is the cheapest proxy.
-          grep -q "name: airflow-webserver" /tmp/airflow-rendered.yaml \\
+          grep -q "name: airflow-webserver" /tmp/airflow-rendered.yaml \
             || { echo "chart rendered no webserver: it is an Airflow 3 chart against a 2.x image"; exit 1; }
           echo "airflow chart renders against the 2.10.5 topology"
 

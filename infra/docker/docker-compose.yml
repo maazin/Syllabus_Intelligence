@@ -1,14 +1,14 @@
 # Local development stack — PRD section 22.1.
 #
 # Everything here runs without a cloud account. The swap to real services
-# (Neon, R2, Brevo) is configuration, not code: MinIO speaks the S3 API that R2
+# (Neon, R2, Brevo) is configuration, not code: LocalStack speaks the S3 API that R2
 # implements, so the same boto3 calls and the same R2_* variable names work in
 # both places (18.1).
 #
 # Host ports are offset (5533, 6479, 9100, 8100, 8125) so this stack can run
 # alongside other local projects that already hold the default ports.
 #
-#   docker compose -f infra/docker/docker-compose.yml up -d postgres redis minio mailhog
+#   docker compose -f infra/docker/docker-compose.yml up -d postgres redis objectstore mailhog
 
 name: syllabus-intelligence
 
@@ -41,37 +41,32 @@ services:
 
   # S3-compatible local stand-in for Cloudflare R2. Same API, so no code
   # branches on environment (18.1).
-  # quay.io, not Docker Hub: MinIO stopped publishing there and the Hub
-  # repository now answers "pull access denied".
-  minio:
-    image: quay.io/minio/minio
-    command: server /data --console-address ":9001"
+  # S3-compatible object storage, standing in for Cloudflare R2.
+  #
+  # LocalStack rather than MinIO. MinIO stopped publishing pullable images: the
+  # Docker Hub repository answers "pull access denied" and quay.io now requires
+  # authentication for the whole repository, which took out every environment
+  # that could not already pull from a warm cache. LocalStack implements the
+  # same S3 API, so `packages/core/db/objectstore.py` is unchanged, down to the
+  # `region_name="auto"` that Cloudflare R2 requires.
+  #
+  # Published on 9100 so R2_ENDPOINT keeps its value everywhere.
+  objectstore:
+    image: localstack/localstack:3
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      SERVICES: s3
+      R2_BUCKET: syllabi
     ports:
-      - "9100:9000"
-      - "9101:9001"
+      - "9100:4566"
     volumes:
-      - miniodata:/data
+      # Runs once the S3 service is up and creates the bucket.
+      - ./localstack-init.sh:/etc/localstack/init/ready.d/01-bucket.sh:ro
+      - objectstore-data:/var/lib/localstack
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
       interval: 5s
       timeout: 5s
-      retries: 10
-
-  # Creates the bucket on first boot so a fresh clone needs no manual step.
-  minio-init:
-    image: quay.io/minio/mc
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/syllabi &&
-      echo 'bucket ready'
-      "
+      retries: 20
 
   # Catches outgoing email locally instead of hitting Brevo/SES. Magic links
   # land at localhost:8125 (22.1). University mail filters are aggressive and
@@ -157,9 +152,9 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/syllint
       REDIS_URL: redis://redis:6379/0
-      R2_ENDPOINT: http://minio:9000
-      R2_ACCESS_KEY_ID: minioadmin
-      R2_SECRET_ACCESS_KEY: minioadmin
+      R2_ENDPOINT: http://objectstore:4566
+      R2_ACCESS_KEY_ID: localstack
+      R2_SECRET_ACCESS_KEY: localstack
       R2_BUCKET: syllabi
       EMAIL_PROVIDER: smtp
       SMTP_HOST: mailhog
@@ -185,9 +180,9 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/syllint
       REDIS_URL: redis://redis:6379/0
-      R2_ENDPOINT: http://minio:9000
-      R2_ACCESS_KEY_ID: minioadmin
-      R2_SECRET_ACCESS_KEY: minioadmin
+      R2_ENDPOINT: http://objectstore:4566
+      R2_ACCESS_KEY_ID: localstack
+      R2_SECRET_ACCESS_KEY: localstack
       R2_BUCKET: syllabi
       OCR_MODE: docling
       MLFLOW_TRACKING_URI: http://mlflow:5000
@@ -207,5 +202,5 @@ services:
 
 volumes:
   pgdata:
-  miniodata:
+  objectstore-data:
   mlartifacts:

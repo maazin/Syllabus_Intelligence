@@ -1,7 +1,8 @@
 """Object storage and content-hash dedup — PRD sections 7, 18.1, 18.3.
 
-R2 in production, MinIO locally, one code path: R2 implements the S3 API, so
-the boto3 calls and the `R2_*` variable names are identical in both places.
+R2 in production, LocalStack locally, one code path: R2 implements the S3
+API, so the boto3 calls and the `R2_*` variable names are identical in both
+places.
 
 Dedup is load-bearing rather than an optimization (18.3). Dozens of students in
 a section upload the identical file; parsing once per section is what keeps
