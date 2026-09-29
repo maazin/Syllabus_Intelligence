@@ -79,6 +79,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          cache-suffix: ${{ github.job }}
       # A managed interpreter, not the runner's system Python. `uv pip install
       # --system` against /usr fails outright on a PEP 668 externally-managed
       # interpreter. This is the exact failure that took this workflow out

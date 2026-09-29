@@ -32,6 +32,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          cache-suffix: ${{ github.job }}
       - run: uv tool run ruff check .
       - run: uv tool run ruff format --check .
       # The workflows are code too, and they have broken in ways only a run
@@ -49,6 +51,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          cache-suffix: ${{ github.job }}
       # A managed interpreter, not the runner's system Python. `uv pip install
       # --system` against /usr fails outright on a PEP 668 externally-managed
       # interpreter, which is what every Python job here was doing.
@@ -123,6 +127,8 @@ jobs:
           # production and means every environment has to.
           docker exec objectstore awslocal s3 mb s3://syllabi
       - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          cache-suffix: ${{ github.job }}
       # A managed interpreter, not the runner's system Python. `uv pip install
       # --system` against /usr fails outright on a PEP 668 externally-managed
       # interpreter, which is what every Python job here was doing.
@@ -166,6 +172,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          cache-suffix: ${{ github.job }}
       # A managed interpreter, not the runner's system Python. `uv pip install
       # --system` against /usr fails outright on a PEP 668 externally-managed
       # interpreter, which is what every Python job here was doing.
@@ -337,6 +345,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          cache-suffix: ${{ github.job }}
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
