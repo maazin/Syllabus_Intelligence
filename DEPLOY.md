@@ -90,42 +90,43 @@ terraform plan     # read it
 terraform apply
 ```
 
-The four `*_image` variables point at tags that do not exist yet. That is fine
-for the first apply: Cloud Run will fail to pull, the service still gets
-created, and the first deploy replaces the tag. The cluster comes up with a
-node pool and no workloads, which is also fine: the deploy applies them.
+The first apply starts Cloud Run on Google's public `hello` container, because
+neither the service nor the migration job can be created against an image that
+does not exist yet, and on a fresh project none do. The first deploy replaces
+it, and from then on CI owns the image tag and Terraform ignores it. The cluster
+comes up with a node pool and no workloads, which is also fine: the deploy
+applies them.
 
 ## 6. Wire up GitHub
 
-`terraform output` prints everything the workflow needs.
+One command, from the same machine that ran Terraform:
 
-Repository **secrets**:
+```bash
+export CLOUDFLARE_API_TOKEN=...   # the token from terraform.tfvars
+scripts/configure_github.sh --dry-run
+scripts/configure_github.sh
+```
 
-| Secret | From |
-|---|---|
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `terraform output -raw workload_identity_provider` |
-| `GCP_SERVICE_ACCOUNT` | `terraform output -raw deploy_service_account` |
-| `CLOUDFLARE_API_TOKEN` | the token from step 4 |
-| `CLOUDFLARE_ACCOUNT_ID` | your Cloudflare account id |
+It reads every value from `terraform output` and sets four repository
+variables and four secrets with the GitHub CLI. Secrets go to `gh` on stdin, so
+they never appear in the process list or shell history. It reads all eight
+before writing any, so a missing output cannot leave the repository
+half-configured.
 
-Repository **variables** (not secrets; they end up in the built app anyway):
+That matters because the Deploy workflow refuses to start on a partial set.
+With nothing configured it skips quietly; with everything it deploys; with
+some but not all it fails immediately and names what is missing, rather than
+migrating the production database and then failing at the last step.
 
-| Variable | Value |
-|---|---|
-| `GCP_PROJECT_ID` | your project id |
-| `GCP_REGION` | `us-central1` |
-| `ARTIFACT_REPOSITORY` | `syllint` |
-| `APP_DOMAIN` | the domain from step 1 |
-
-There is no service-account JSON key anywhere in this list, and that is
-deliberate. A JSON key is a permanent credential sitting in a GitHub secret;
-nothing about it expires, so a leak keeps working until a human notices.
-Workload Identity Federation mints a token per run, scoped by
-`attribute_condition` to exactly one repository.
+There is no service-account JSON key anywhere in this, and that is deliberate.
+A JSON key is a permanent credential sitting in a GitHub secret; nothing about
+it expires, so a leak keeps working until a human notices. Workload Identity
+Federation mints a token per run, scoped by `attribute_condition` to exactly
+one repository.
 
 ## 7. Deploy
 
-Push to `main`, or run the **Deploy** workflow by hand. The order is:
+Push to `main`, or start it by hand with `gh workflow run Deploy`. The order is:
 
 ```
 CI  ->  build and push images  ->  migrate  ->  API revision  ->  cluster  ->  web app
@@ -227,6 +228,10 @@ Listed because a runbook that hides them is worse than no runbook.
   upload is the first real test of the two-pass prompt.
 - **The golden set is empty.** Section 16 asks for 100 syllabi with known
   answers, and the hallucination ceiling of 0.5% is unmeasured until they exist.
+  The nightly **Extraction eval** workflow reports this as a skipped job with
+  a notice, rather than running a suite with nothing in it and passing. Add
+  labels to `tests/golden_set/labels/` and an `LLM_API_KEY` repository secret,
+  and it starts gating for real.
 - **The browser suite stubs the API.** `tests/smoke` closes most of that gap
   by driving the loop over HTTP against the compose stack in CI; the Angular
   templates themselves are still only exercised against stubs.

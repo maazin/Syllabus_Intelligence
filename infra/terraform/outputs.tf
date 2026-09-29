@@ -88,3 +88,29 @@ output "web_config_json" {
   EOT
   value       = jsonencode({ apiBase = "https://api.${var.app_domain}/api/v1", environment = var.environment })
 }
+
+# The rest of what scripts/configure_github.sh needs, so every repository
+# setting the Deploy workflow reads comes from this state and nothing is
+# retyped by hand. A retyped region or domain that disagrees with what was
+# provisioned fails a deploy with an error about something else entirely.
+
+output "gcp_project_id" {
+  value = var.gcp_project_id
+}
+
+output "gcp_region" {
+  value = var.gcp_region
+}
+
+output "artifact_repository" {
+  value = google_artifact_registry_repository.images.repository_id
+}
+
+output "app_domain" {
+  value = var.app_domain
+}
+
+output "cloudflare_account_id" {
+  value     = var.cloudflare_account_id
+  sensitive = true
+}

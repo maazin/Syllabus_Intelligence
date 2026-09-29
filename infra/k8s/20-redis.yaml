@@ -75,6 +75,10 @@ metadata:
 spec:
   type: LoadBalancer
   loadBalancerIP: PLACEHOLDER_REDIS_IP
+  # GKE turns this into the firewall rule for the load balancer. The VPC's
+  # auto-mode ranges cover Cloud Run's Direct VPC egress and nothing public.
+  loadBalancerSourceRanges:
+    - 10.128.0.0/9
   selector: { app: redis }
   ports:
     - { name: redis, port: 6379, targetPort: redis }

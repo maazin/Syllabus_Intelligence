@@ -56,8 +56,18 @@ variable "llm_api_key" {
 }
 
 variable "container_image" {
-  description = "Fully qualified API image, tagged by commit rather than latest."
+  description = <<-EOT
+    Image Cloud Run starts with on the first apply, before CI has pushed
+    anything. Google's public hello container, because the service and the
+    migration job both refuse to create against an image that does not exist,
+    and on a fresh project nothing does yet. It honours $PORT and answers 200
+    on every path, so the /health startup probe passes.
+
+    After the first deploy CI owns the tag and Terraform ignores it, so this
+    is only ever read once.
+  EOT
   type        = string
+  default     = "us-docker.pkg.dev/cloudrun/container/hello"
 }
 
 variable "worker_node_machine_type" {
@@ -81,13 +91,6 @@ variable "artifact_repository" {
   default     = "syllint"
 }
 
-variable "worker_image" {
-  description = <<-EOT
-    Celery worker image, tagged by commit like the API. The VM pulls this on
-    boot, so a deploy that changes it is a VM restart rather than a rebuild.
-  EOT
-  type        = string
-}
 
 variable "github_repository" {
   description = <<-EOT
@@ -168,20 +171,4 @@ variable "google_calendar_client_secret" {
   default   = ""
 }
 
-variable "mlflow_image" {
-  description = <<-EOT
-    MLflow server image. Built from infra/docker/mlflow.Dockerfile rather than
-    pulled from upstream, because the published image has no Postgres driver
-    and MLflow's backend store here is Postgres.
-  EOT
-  type        = string
-}
 
-variable "airflow_image" {
-  description = <<-EOT
-    Airflow image with dbt installed. Built from infra/docker/airflow.Dockerfile:
-    Airflow's own constraints file caps SQLAlchemy below 2.0, so it cannot share
-    an environment with the application and has to be its own container.
-  EOT
-  type        = string
-}

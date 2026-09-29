@@ -37,13 +37,6 @@ smtp_port     = 587
 smtp_user     = "you@example.com"
 smtp_password = "..."
 
-# Filled in by the deploy workflow on every run. The values here only matter
-# for the very first apply, which has to point at something that exists.
-container_image = "us-central1-docker.pkg.dev/your-gcp-project-id/syllint/api:bootstrap"
-worker_image    = "us-central1-docker.pkg.dev/your-gcp-project-id/syllint/worker:bootstrap"
-mlflow_image    = "us-central1-docker.pkg.dev/your-gcp-project-id/syllint/mlflow:bootstrap"
-airflow_image   = "us-central1-docker.pkg.dev/your-gcp-project-id/syllint/airflow:bootstrap"
-
 # The GKE node pool that runs Redis, the Celery workers, MLflow and Airflow.
 # Same machine the pre-Kubernetes VM was, so the cost envelope is unchanged.
 worker_node_machine_type = "e2-standard-2"

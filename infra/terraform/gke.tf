@@ -205,16 +205,8 @@ resource "google_compute_address" "redis" {
   region       = var.gcp_region
 }
 
-# Only the cluster's own nodes and Cloud Run's egress range reach the broker.
-resource "google_compute_firewall" "redis_internal" {
-  name    = "syllint-${var.environment}-redis-internal"
-  network = "default"
-
-  allow {
-    protocol = "tcp"
-    ports    = ["6379"]
-  }
-
-  source_ranges = ["10.128.0.0/9"]
-  target_tags   = ["gke-${local.cluster_name}"]
-}
+# No firewall rule here, deliberately. GKE writes the rule for an internal load
+# balancer itself, from the Service's loadBalancerSourceRanges (see
+# infra/k8s/20-redis.yaml). A hand-written rule has to target the nodes by
+# network tag, and GKE tags nodes `gke-<cluster>-<hash>-node` with a hash it
+# chooses at creation; a rule written before that exists targets nothing.

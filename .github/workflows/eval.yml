@@ -2,7 +2,18 @@
 #
 # This is the one CI gate allowed to fail a PR for a reason other than a bug:
 # a worse prompt is exactly as blocking as a failing test, and should be treated
-# that way by anyone — or anything — working in this repo.
+# that way by anyone, or anything, working in this repo.
+#
+# It can only mean something once two things exist: a model API key in the
+# repository secrets, and hand-labeled syllabi in tests/golden_set/labels/.
+# Until both do, the `ready` job says so and everything after it is skipped.
+#
+# That is deliberately not the same as running and passing. This workflow once
+# failed every night for weeks at its install step, emailing each time, and
+# once that was fixed the obvious next state was a nightly green tick over a
+# suite that skipped its only test. A green gate that evaluated nothing is
+# worse than a red one, because it reads as evidence. A skipped job reads as
+# what it is.
 
 name: Extraction eval
 
@@ -11,28 +22,72 @@ on:
     paths:
       - "packages/core/prompts/**"
       - "services/worker/tasks/extract.py"
-      - "services/worker/tasks/resolve_dates.py"
+      - "services/worker/tasks/llm.py"
+      - "services/worker/tasks/validate.py"
       - "packages/core/date_resolver/**"
       - "tests/golden_set/**"
   schedule:
-    # Full 100 nightly on main.
+    # Full set nightly on main.
     - cron: "0 7 * * *"
+  # So the gate can be run on demand after labeling a batch, without waiting
+  # for the schedule or opening a pull request.
+  workflow_dispatch:
+
+concurrency:
+  group: eval-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  ready:
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: check
+        env:
+          HAS_KEY: ${{ secrets.LLM_API_KEY != '' }}
+        run: |
+          # Same rule as harness.load_labels(): top-level *.json only.
+          labels=$(find tests/golden_set/labels -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+          echo "Labeled syllabi: $labels"
+          echo "Model key configured: $HAS_KEY"
+
+          if [ "$HAS_KEY" = "true" ] && [ "$labels" -gt 0 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "run=false" >> "$GITHUB_OUTPUT"
+          reasons=()
+          [ "$labels" -eq 0 ] && reasons+=("tests/golden_set/labels/ is empty; section 16 asks for 100 hand-labeled syllabi")
+          [ "$HAS_KEY" != "true" ] && reasons+=("the LLM_API_KEY repository secret is not set")
+          for reason in "${reasons[@]}"; do
+            echo "::notice title=Eval gate not run::$reason"
+          done
+
   eval:
-    runs-on: ubuntu-latest
+    needs: ready
+    if: needs.ready.outputs.run == 'true'
+    runs-on: ubuntu-24.04
     env:
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-      # Sampled subset on every push; the full set nightly.
-      GOLDEN_SET_SAMPLE: ${{ github.event_name == 'schedule' && '100' || '20' }}
+      LLM_MODE: live
+      # A sampled subset on pull requests keeps a prompt tweak cheap to check;
+      # the full set runs nightly and on demand.
+      GOLDEN_SET_SAMPLE: ${{ github.event_name == 'pull_request' && '20' || '100' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      # A managed interpreter, not the runner's system Python. `uv pip install
+      # --system` against /usr fails outright on a PEP 668 externally-managed
+      # interpreter. This is the exact failure that took this workflow out
+      # every night; CI had the same fix and this file was missed.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
       - run: uv pip install --system -r services/worker/requirements.txt pytest
       - name: Run the golden-set gate
+        # Every run records prompt_version, so a production correction rate
+        # can be attributed back to the prompt that produced it (section 16).
         run: pytest tests/golden_set -m eval -q -rs
-      # Every run records prompt_version so a production correction rate can be
-      # attributed back to a specific prompt (section 16).
-      - name: Report field-group scores
-        if: always()
-        run: echo "See the test output above for per-field-group F1 and ship gates."

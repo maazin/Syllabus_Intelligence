@@ -126,6 +126,19 @@ resource "google_cloud_run_v2_service" "api" {
     type    = "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST"
     percent = 100
   }
+
+  lifecycle {
+    # The deploy workflow sets the image on every push. Without this, every
+    # `terraform apply` afterwards quietly rolls the API back to whatever tag
+    # the variable holds, which after the first deploy is the bootstrap
+    # placeholder. The migrate job below has carried this since it was
+    # written; the service was missing it.
+    ignore_changes = [
+      template[0].containers[0].image,
+      client,
+      client_version,
+    ]
+  }
 }
 
 # Public: the API is the backend for a browser app and does its own bearer-token
